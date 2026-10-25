@@ -1,0 +1,68 @@
+// Transport contract only. This module contains no server implementation.
+const str = {type: 'string', minLength: 1, maxLength: 512};
+const text = {type: 'string'};
+const int = {type: 'integer', minimum: 0};
+const nullableId = {anyOf: [str, {type: 'null'}]};
+const object = (properties, required = Object.keys(properties)) => ({type: 'object', properties, required, additionalProperties: false});
+const list = (items, maxItems) => ({type: 'array', items, ...(maxItems ? {maxItems} : {})});
+const modes = {enum: ['PRACTICE', 'TEST', 'DAILY', 'BATTLE']};
+const option = object({id: str, text});
+export const question = object({id: str, version: str, categoryId: {enum: ['vocabulary', 'grammar', 'listening', 'reading']}, topicId: text, prompt: str,
+  options: {...list(option), minItems: 2}, passage: text, audioText: text}, ['id', 'version', 'categoryId', 'prompt', 'options']);
+const review = object({question, pickedId: nullableId, correctId: str, explanation: text});
+export const result = object({attemptId: str, mode: modes, correct: int, total: {...int, minimum: 1}, coins: int,
+  ratingDelta: {type: 'integer'}, outcome: {enum: ['completed', 'abandoned', 'win', 'loss', 'draw', 'left']},
+  opponentName: text, opponentCorrect: int, completedAt: int, reviews: list(review)}, ['attemptId', 'mode', 'correct', 'total', 'coins', 'outcome', 'reviews']);
+const receipt = object({questionId: str, optionId: nullableId, correct: {type: ['boolean', 'null']}}, ['questionId', 'optionId']);
+export const attempt = {...object({id: str, mode: modes, topicId: text, questions: list(question), index: int, deadlineAt: int,
+  receipts: list(receipt), status: {enum: ['active', 'waiting', 'completed', 'abandoned']}, opponentName: text,
+  result: {anyOf: [result, {type: 'null'}]}, reconnectDeadlineAt: {anyOf: [int, {type: 'null'}]}}, ['id', 'mode', 'questions', 'index', 'deadlineAt', 'receipts', 'status']),
+  allOf: [{if: {properties: {status: {const: 'active'}}}, then: {properties: {questions: {minItems: 1}}}},
+    {if: {properties: {status: {enum: ['completed', 'abandoned']}}}, then: {required: ['result'], properties: {result}}}]};
+const entry = object({uid: str, name: str, rank: {...int, minimum: 1}, rating: int});
+const leaderboard = object({title: str, entries: list(entry, 100), self: {anyOf: [entry, {type: 'null'}]}, nextCursor: nullableId});
+const ticket = object({id: str, status: {enum: ['searching', 'waiting', 'matched', 'cancelled', 'expired', 'failed']}, opponentName: text, attemptId: nullableId, roomCode: nullableId}, ['id', 'status']);
+const dashboard = object({rating: int, coins: int, wins: int, losses: int, draws: int, streak: int,
+  progress: {type: 'object', additionalProperties: int},
+  daily: object({status: {enum: ['available', 'active', 'waiting', 'completed', 'abandoned']}, attemptId: nullableId}, ['status']),
+  history: list(result, 50), achievements: list(object({id: str, title: str, description: text, unlocked: {type: 'boolean'}})),
+  notifications: list(object({id: str, title: str, body: text, destination: {enum: ['Achievements', 'Challenge', 'Practice', 'Battle', 'Leaderboard', 'History', 'Wallet']}, read: {type: 'boolean'}, createdAt: int}), 50),
+  ledger: list(object({id: str, label: str, delta: {type: 'integer'}, createdAt: int}), 50),
+  skills: list(object({id: str, name: str, answered: int, correct: int}))});
+const response = props => object({serverNow: int, ...props});
+const empty = object({});
+export const mobileContract = {
+  version: 1, region: 'asia-southeast1', transport: 'firebase-callable',
+  methods: {
+    ensureUserProfile: {request: empty, response: response({}), writes: true},
+    getUserDashboard: {request: empty, response: response({dashboard})},
+    startAttempt: {request: {...object({mode: modes, topicId: nullableId, requestId: str}, ['mode', 'requestId']),
+      allOf: [{if: {properties: {mode: {const: 'PRACTICE'}}}, then: {required: ['topicId'], properties: {topicId: str}}}]}, response: response({attempt}), writes: true},
+    resumeAttempt: {request: object({attemptId: str}), response: response({attempt})},
+    submitAttemptAnswer: {request: object({attemptId: str, questionId: str, optionId: nullableId, requestId: str}), response: response({attempt}), writes: true},
+    advanceAttempt: {request: object({attemptId: str, requestId: str}), response: response({attempt}), writes: true},
+    leaveAttempt: {request: object({attemptId: str, requestId: str}), response: response({attempt}), writes: true},
+    findBattle: {request: {...object({kind: {enum: ['quick', 'daily', 'create', 'join']}, roomCode: nullableId, requestId: str}, ['kind', 'requestId']),
+      allOf: [{if: {properties: {kind: {const: 'join'}}}, then: {required: ['roomCode'], properties: {roomCode: {type: 'string', pattern: '^[A-Z0-9]{6}$'}}}}]}, response: response({ticket}), writes: true, phaseOneKinds: ['quick']},
+    getBattleTicket: {request: object({ticketId: str}), response: response({ticket})},
+    cancelBattleSearch: {request: object({ticketId: str}), response: response({}), writes: true},
+    getLeaderboard: {request: object({period: {enum: ['week', 'month']}, cursor: nullableId}, ['period']), response: response({page: leaderboard})},
+    markNotificationsRead: {request: object({ids: list(str, 50)}), response: response({}), writes: true},
+    getAttemptResult: {request: object({attemptId: str}), response: response({result})},
+  },
+};
+
+export function assertAttemptSemantics(value) {
+  const ids = new Set();
+  for (const q of value.questions) {
+    if (ids.has(q.id)) throw new Error('Duplicate question id'); ids.add(q.id);
+    if (new Set(q.options.map(o => o.id)).size !== q.options.length) throw new Error('Duplicate option id');
+  }
+  if (value.status === 'active' && value.index >= value.questions.length) throw new Error('Invalid current question index');
+  for (const receipt of value.receipts) {
+    const q = value.questions.find(q => q.id === receipt.questionId);
+    if (!q || (receipt.optionId !== null && !q.options.some(o => o.id === receipt.optionId))) throw new Error('Receipt does not reference a valid option');
+  }
+  if (new Set(value.receipts.map(r => r.questionId)).size !== value.receipts.length) throw new Error('Duplicate receipt');
+  if (value.result && value.result.correct > value.result.total) throw new Error('Correct count exceeds total');
+}

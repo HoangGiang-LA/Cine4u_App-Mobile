@@ -1,0 +1,30 @@
+{
+  "project_info": {
+    "project_number": "1052524880202",
+    "firebase_url": "https://englishbattleapp-8d764-default-rtdb.asia-southeast1.firebasedatabase.app",
+    "project_id": "englishbattleapp-8d764",
+    "storage_bucket": "englishbattleapp-8d764.firebasestorage.app"
+  },
+  "client": [
+    {
+      "client_info": {
+        "mobilesdk_app_id": "1:1052524880202:android:e666de6019a29c16fb21b3",
+        "android_client_info": {
+          "package_name": "com.englishbattle.app"
+        }
+      },
+      "oauth_client": [],
+      "api_key": [
+        {
+          "current_key": "AIzaSyB3gyvPkUoHNmDI8ZK7kMtE2HI5W5UwG8E"
+        }
+      ],
+      "services": {
+        "appinvite_service": {
+          "other_platform_oauth_client": []
+        }
+      }
+    }
+  ],
+  "configuration_version": "1"
+}

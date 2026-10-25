@@ -1,0 +1,23 @@
+{
+  "file": "KH2g6ct0xPjDKMkR2SzKLk",
+  "name": "App English Battle",
+  "linkAccess": "edit",
+  "clientMeta": {
+    "background_color": {
+      "r": 0.9607843160629272,
+      "g": 0.9607843160629272,
+      "b": 0.9607843160629272,
+      "a": 1.0
+    },
+    "thumbnail_size": {
+      "width": 675,
+      "height": 800
+    },
+    "render_coordinates": {
+      "x": -1514.0,
+      "y": 229.0,
+      "width": 5101.0,
+      "height": 6048.0
+    }
+  }
+}

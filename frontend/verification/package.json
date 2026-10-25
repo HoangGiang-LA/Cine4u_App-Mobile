@@ -1,0 +1,19 @@
+{
+  "name": "english-battle-pre-backend-verification",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "test": "node --test test/contracts.test.mjs test/export.test.mjs",
+    "check": "node check.mjs",
+    "test:rules": "firebase emulators:exec --project demo-english-battle --only database --config ../firebase.emulator-qa.json \"node --test test/rules.test.mjs\"",
+    "compare:export": "node compare-export.mjs"
+  },
+  "overrides": {
+    "@grpc/grpc-js": "1.14.6"
+  },
+  "devDependencies": {
+    "@firebase/rules-unit-testing": "^6.0.0",
+    "ajv": "^8.20.0",
+    "firebase-tools": "^15.34.1"
+  }
+}

@@ -1,0 +1,55 @@
+{
+  "rules": {
+    ".read": false,
+    ".write": false,
+    "categories": {
+      ".indexOn": ["status"],
+      ".read": "auth != null && root.child('accountAccess').child(auth.uid).child('status').val() === 'active' && query.orderByChild === 'status' && query.equalTo === 'published'"
+    },
+    "topics": {
+      ".indexOn": ["status", "categoryId"],
+      ".read": "auth != null && root.child('accountAccess').child(auth.uid).child('status').val() === 'active' && query.orderByChild === 'status' && query.equalTo === 'published'"
+    },
+    "accountAccess": {
+      "$uid": { ".read": "auth != null && auth.uid === $uid" }
+    },
+    "users": {
+      "$uid": { ".read": "auth != null && root.child('accountAccess').child(auth.uid).child('status').val() === 'active'" }
+    },
+    "userPrivate": {
+      "$uid": { ".read": "auth != null && auth.uid === $uid && root.child('accountAccess').child(auth.uid).child('status').val() === 'active'" }
+    },
+    "userSettings": {
+      "$uid": { ".read": "auth != null && auth.uid === $uid && root.child('accountAccess').child(auth.uid).child('status').val() === 'active'" }
+    },
+    "wallets": {
+      "$uid": { ".read": "auth != null && auth.uid === $uid && root.child('accountAccess').child(auth.uid).child('status').val() === 'active'" }
+    },
+    "userStats": {
+      "$uid": { ".read": "auth != null && auth.uid === $uid && root.child('accountAccess').child(auth.uid).child('status').val() === 'active'" }
+    },
+    "adminProfiles": {
+      "$uid": { ".read": "auth != null && auth.uid === $uid && auth.token.admin === true && root.child('accountAccess').child(auth.uid).child('status').val() === 'active'" }
+    },
+    "adminViews": {
+      ".read": "auth != null && auth.token.admin === true && root.child('accountAccess').child(auth.uid).child('status').val() === 'active'",
+      "users": { ".indexOn": ["createdAt", "status", "nameNormalized", "emailNormalized"] },
+      "questions": { ".indexOn": ["updatedAt", "status", "categoryId", "difficulty"] },
+      "battles": { ".indexOn": ["startedAt", "status", "mode"] },
+      "recentActivities": { ".indexOn": ["serverAt"] }
+    },
+    "adminAuditLogs": {
+      ".read": "auth != null && auth.token.admin === true && root.child('accountAccess').child(auth.uid).child('status').val() === 'active'"
+    },
+    "analytics": {
+      ".read": "auth != null && auth.token.admin === true && root.child('accountAccess').child(auth.uid).child('status').val() === 'active'"
+    },
+    "questions": { ".indexOn": ["status", "categoryId", "topicId", "updatedAt"] },
+    "questionVersions": { ".read": false },
+    "questionAnswers": { ".read": false },
+    "battleRooms": { ".indexOn": ["status", "startedAt"] },
+    "battleQuestionSets": { ".read": false },
+    "battleSubmissions": { ".read": false },
+    "appConfig": { ".read": false }
+  }
+}

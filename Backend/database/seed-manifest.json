@@ -1,0 +1,62 @@
+{
+  "schemaVersion": 1,
+  "generatedFrom": "seed/build-seed.mjs",
+  "contentRelease": "2026-10-24",
+  "counts": {
+    "categories": 4,
+    "topics": 25,
+    "lessons": 25,
+    "questions": 250,
+    "ttsAssets": 30,
+    "quizTemplates": 28,
+    "achievements": 31
+  },
+  "questionsPerCategory": {
+    "vocabulary": 70,
+    "grammar": 60,
+    "listening": 60,
+    "reading": 60
+  },
+  "questionsPerTopic": {
+    "vocabulary_daily_life": 10,
+    "vocabulary_travel": 10,
+    "vocabulary_work": 10,
+    "vocabulary_food": 10,
+    "vocabulary_study": 10,
+    "vocabulary_health": 10,
+    "vocabulary_idioms": 10,
+    "grammar_tenses": 10,
+    "grammar_prepositions": 10,
+    "grammar_articles": 10,
+    "grammar_nouns": 10,
+    "grammar_verbs": 10,
+    "grammar_adjectives": 10,
+    "reading_daily_life": 10,
+    "reading_travel": 10,
+    "reading_science": 10,
+    "reading_education": 10,
+    "reading_culture": 10,
+    "reading_health": 10,
+    "listening_daily_life": 10,
+    "listening_travel": 10,
+    "listening_work": 10,
+    "listening_education": 10,
+    "listening_food": 10,
+    "listening_health": 10
+  },
+  "starterDefaults": {
+    "mixedPoolsFor": [
+      "test",
+      "dailyChallenge",
+      "battle"
+    ],
+    "practicePool": "selected_category_and_topic",
+    "timeZone": "Asia/Ho_Chi_Minh",
+    "selection": "random_without_replacement",
+    "audio": "Android Text-to-Speech; no uploaded audio files",
+    "achievements": "25 confirmed topic milestones plus 6 starter badge definitions based on existing UI"
+  },
+  "importFile": "english-battle.seed.json",
+  "examplesFile": "runtime-examples.reference.json",
+  "warning": "Import only importFile into an empty RTDB. Runtime examples are documentation, not real accounts or activity."
+}

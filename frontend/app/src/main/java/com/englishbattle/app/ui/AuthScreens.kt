@@ -11,12 +11,10 @@ import androidx.compose.runtime.*
 import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
-import androidx.compose.ui.draw.clip
-import androidx.compose.ui.graphics.*
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.Brush
 import androidx.compose.ui.graphics.vector.ImageVector
-import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.input.*
-import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.*
 import com.englishbattle.app.R
 
@@ -45,30 +43,36 @@ import com.englishbattle.app.R
     }
 }
 
-@Composable fun AuthField(value: String, change: (String) -> Unit, placeholder: String, icon: ImageVector, password: Boolean = false) {
-    var visible by rememberSaveable { mutableStateOf(false) }
-    OutlinedTextField(value, change, Modifier.fillMaxWidth(), placeholder = { Text(placeholder, color = Muted, fontSize = 14.sp) },
-        singleLine = true, leadingIcon = { Icon(icon, null, Modifier.size(20.dp), tint = Muted) },
+@Composable fun AuthField(value: String, change: (String) -> Unit, placeholder: String, icon: ImageVector,
+    password: Boolean = false, enabled: Boolean = true) {
+    var visible by remember { mutableStateOf(false) }
+    OutlinedTextField(value, change, Modifier.fillMaxWidth(), enabled = enabled,
+        placeholder = { Text(placeholder, color = Muted, fontSize = 14.sp) }, singleLine = true,
+        leadingIcon = { Icon(icon, null, Modifier.size(20.dp), tint = Muted) },
         trailingIcon = if (password) { { IconButton({ visible = !visible }) {
-            Icon(if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility, if (visible) "Ẩn mật khẩu" else "Hiện mật khẩu", tint = Muted)
+            Icon(if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
+                if (visible) "Ẩn mật khẩu" else "Hiện mật khẩu", tint = Muted)
         } } } else null,
         visualTransformation = if (password && !visible) PasswordVisualTransformation() else VisualTransformation.None,
-        keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else if (placeholder.contains("Email")) KeyboardType.Email else KeyboardType.Text),
-        shape = RoundedCornerShape(14.dp), colors = OutlinedTextFieldDefaults.colors(
-            unfocusedBorderColor = Line, unfocusedContainerColor = Color(0xFFF6F5F9), focusedContainerColor = Color.White))
+        keyboardOptions = KeyboardOptions(keyboardType = if (password) KeyboardType.Password else if (placeholder.contains("Email", true)) KeyboardType.Email else KeyboardType.Text),
+        shape = RoundedCornerShape(14.dp), colors = OutlinedTextFieldDefaults.colors(unfocusedBorderColor = Line,
+            unfocusedContainerColor = Color(0xFFF6F5F9), focusedContainerColor = Color.White))
 }
 
-@Composable fun AuthScreen(route: Route, go: (Route) -> Unit, back: () -> Unit,
-                          onLogin: (String, String) -> Unit, showMessage: (String) -> Unit) {
-    var user by rememberSaveable { mutableStateOf("") }
-    var email by rememberSaveable { mutableStateOf("") }
-    var password by rememberSaveable { mutableStateOf("") }
-    var confirm by rememberSaveable { mutableStateOf("") }
-    var error by rememberSaveable { mutableStateOf("") }
+@Composable fun AuthScreen(route: Route, state: AuthState, go: (Route) -> Unit, back: () -> Unit,
+    submit: (Boolean, String, String, String) -> Unit, reset: (String) -> Unit, dismiss: () -> Unit, demo: (() -> Unit)?) {
+    var name by rememberSaveable(route) { mutableStateOf("") }
+    var email by rememberSaveable(route) { mutableStateOf("") }
+    // Passwords are never placed in saved-instance state or preferences.
+    var password by remember(route) { mutableStateOf("") }
+    var confirm by remember(route) { mutableStateOf("") }
+    var error by rememberSaveable(route) { mutableStateOf<String?>(null) }
     val login = route == Route.Login
     val forgot = route == Route.Forgot
-    Column(Modifier.fillMaxSize().background(Color.White).verticalScroll(rememberScrollState()).padding(24.dp), horizontalAlignment = Alignment.CenterHorizontally) {
-        if (!login) TopBar("", back)
+    var googleNotice by remember { mutableStateOf(false) }
+    Column(Modifier.fillMaxSize().background(Color.White).verticalScroll(rememberScrollState()).padding(24.dp),
+        horizontalAlignment = Alignment.CenterHorizontally) {
+        if (!login) TopBar("", { if (!state.busy) { dismiss(); back() } })
         if (login) {
             Spacer(Modifier.height(24.dp))
             MascotFace(false, Modifier.size(146.dp).padding(8.dp))
@@ -78,44 +82,49 @@ import com.englishbattle.app.R
         } else {
             Spacer(Modifier.height(if (forgot) 100.dp else 20.dp))
             Text(if (forgot) "Quên mật khẩu?" else "Tạo tài khoản", Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineLarge)
-            Small(if (forgot) "Nhập email của bạn để nhận mã đặt\nlại mật khẩu" else "Tham gia cộng đồng học tập!", Modifier.fillMaxWidth())
+            Small(if (forgot) "Nhập email của bạn để nhận liên kết đặt\nlại mật khẩu" else "Tham gia cộng đồng học tập!", Modifier.fillMaxWidth())
             Spacer(Modifier.height(32.dp))
         }
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
-            if (!login && !forgot) AuthField(user, { user = it }, "Tên hiển thị", Icons.Outlined.PersonOutline)
-            AuthField(email, { email = it; error = "" }, if (login) "Email hoặc số điện thoại" else "Email", Icons.Outlined.Email)
-            if (!forgot) AuthField(password, { password = it; error = "" }, "Mật khẩu", Icons.Outlined.Lock, true)
-            if (!login && !forgot) AuthField(confirm, { confirm = it }, "Nhập lại mật khẩu", Icons.Outlined.Lock, true)
+        if (!login && !forgot) AuthField(name, { name = it }, "Tên hiển thị", Icons.Outlined.PersonOutline, enabled = !state.busy)
+        AuthField(email, { email = it; error = null; dismiss() }, "Email", Icons.Outlined.Email, enabled = !state.busy)
+        if (!forgot) AuthField(password, { password = it; error = null; dismiss() }, "Mật khẩu", Icons.Outlined.Lock, true, !state.busy)
+        if (!login && !forgot) AuthField(confirm, { confirm = it }, "Nhập lại mật khẩu", Icons.Outlined.Lock, true, !state.busy)
         }
-        if (login) TextButton({ go(Route.Forgot) }, Modifier.align(Alignment.End)) { Text("Quên mật khẩu?", color = Purple, fontSize = 12.sp) }
-        if (error.isNotBlank()) Text(error, Modifier.padding(vertical = 8.dp), color = MaterialTheme.colorScheme.error, fontSize = 12.sp)
+        if (login) TextButton({ dismiss(); go(Route.Forgot) }, Modifier.align(Alignment.End), enabled = !state.busy) { Text("Quên mật khẩu?") }
+        (error ?: state.error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        state.message?.let { Panel(color = Mint) { Text(it) } }
+        if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Spacer(Modifier.height(if (login || forgot) 16.dp else 56.dp))
-        Primary(if (forgot) "Gửi mã" else if (login) "Đăng nhập" else "Đăng ký") {
-            val validEmail = android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches()
-            val validPhone = email.trim().matches(Regex("[+0-9][0-9 ]{8,14}"))
+        Primary(if (state.busy) "Đang xử lý..." else if (forgot) "Gửi liên kết" else if (login) "Đăng nhập" else "Đăng ký", enabled = !state.busy) {
             error = when {
-                !validEmail && !(login && validPhone) -> "Vui lòng nhập email${if(login) " hoặc số điện thoại" else ""} hợp lệ."
+                !android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches() -> "Vui lòng nhập email hợp lệ."
                 !forgot && password.length < 6 -> "Mật khẩu cần ít nhất 6 ký tự."
-                !login && !forgot && user.isBlank() -> "Vui lòng nhập tên hiển thị."
+                !login && !forgot && name.trim().length !in 2..50 -> "Tên hiển thị cần từ 2 đến 50 ký tự."
                 !login && !forgot && password != confirm -> "Mật khẩu nhập lại chưa khớp."
-                else -> ""
+                else -> null
             }
-            if (error.isBlank()) {
-                if (forgot) showMessage("Giao diện khôi phục mật khẩu đã sẵn sàng. Chức năng gửi mã email cần kết nối dịch vụ xác thực; chưa có email nào được gửi.")
-                else onLogin(user, email.trim())
-            }
+            if (error == null) { if (forgot) reset(email) else submit(!login, name, email, password) }
         }
         if (login) {
             Spacer(Modifier.height(12.dp))
-            OutlinedButton({ showMessage("Đăng nhập Google cần cấu hình Firebase hoặc Google OAuth. Để xem giao diện, nhập email và mật khẩu bất kỳ từ 6 ký tự vào biểu mẫu đăng nhập.") },
-                Modifier.fillMaxWidth().heightIn(min = 50.dp), shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, Line)) {
-                Text("G", color = Color(0xFF4285F4), fontWeight = FontWeight.ExtraBold, fontSize = 20.sp)
+            OutlinedButton({ googleNotice = true }, Modifier.fillMaxWidth().heightIn(min = 50.dp), enabled = !state.busy,
+                shape = RoundedCornerShape(14.dp), border = BorderStroke(1.dp, Line)) {
+                Text("G", color = Color(0xFF4285F4), fontSize = 20.sp)
                 Spacer(Modifier.width(12.dp)); Text("Đăng nhập với Google", color = Ink)
             }
         }
-        Spacer(Modifier.height(if(forgot) 120.dp else 32.dp))
-        TextButton({ if (login) go(Route.Register) else back() }) {
-            Text(if (forgot) "Quay lại Đăng nhập" else if (login) "Chưa có tài khoản? Đăng ký" else "Đã có tài khoản? Đăng nhập", color = Purple, fontSize = 12.sp, textAlign = TextAlign.Center)
+        Spacer(Modifier.height(if (forgot) 120.dp else 32.dp))
+        TextButton({ dismiss(); if (login) go(Route.Register) else back() }, enabled = !state.busy) {
+            Text(if (login) "Chưa có tài khoản? Đăng ký" else "Quay lại Đăng nhập")
+        }
+        if (login && demo != null) {
+            HorizontalDivider(color = Line)
+            OutlinedButton(demo, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Khám phá bản mô phỏng") }
+            Small("Dữ liệu học thử được lưu riêng trên thiết bị. Không tạo tài khoản hoặc cộng điểm thật.")
         }
     }
+    if (googleNotice) AlertDialog(onDismissRequest = { googleNotice = false }, title = { Text("Đăng nhập với Google") },
+        text = { Text("Phương thức Google chưa được cấu hình cho bản này. Bạn có thể đăng nhập bằng email và mật khẩu.") },
+        confirmButton = { TextButton({ googleNotice = false }) { Text("Đã hiểu") } })
 }

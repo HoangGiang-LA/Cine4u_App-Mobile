@@ -1,0 +1,144 @@
+package com.englishbattle.app.data
+
+import com.google.firebase.FirebaseNetworkException
+import com.google.firebase.FirebaseTooManyRequestsException
+import com.google.firebase.auth.*
+import com.google.firebase.database.*
+import com.google.firebase.functions.FirebaseFunctions
+import com.google.firebase.functions.FirebaseFunctionsException
+import kotlinx.coroutines.CancellationException
+import kotlinx.coroutines.TimeoutCancellationException
+import kotlinx.coroutines.channels.awaitClose
+import kotlinx.coroutines.flow.*
+import kotlinx.coroutines.tasks.await
+import kotlinx.coroutines.withTimeout
+import org.json.JSONObject
+
+class FirebaseAuthRepository(private val auth: FirebaseAuth = FirebaseAuth.getInstance()) : AuthRepository {
+    private val profileUpdates = MutableStateFlow(0)
+    private fun identity() = auth.currentUser?.let {
+        UserIdentity(it.uid, it.displayName?.takeIf(String::isNotBlank) ?: "Người học", it.email.orEmpty(), it.metadata?.creationTimestamp ?: 0)
+    }
+    private val authUsers: Flow<UserIdentity?> = callbackFlow {
+        val listener = FirebaseAuth.AuthStateListener { trySend(identity()) }
+        auth.addAuthStateListener(listener)
+        awaitClose { auth.removeAuthStateListener(listener) }
+    }
+    override val users: Flow<UserIdentity?> = combine(authUsers, profileUpdates) { _, _ -> identity() }.distinctUntilChanged()
+    override suspend fun signIn(email: String, password: String) { withTimeout(20_000) { auth.signInWithEmailAndPassword(email, password).await() } }
+    override suspend fun signUp(name: String, email: String, password: String) {
+        withTimeout(20_000) {
+            val user = auth.createUserWithEmailAndPassword(email, password).await().user ?: throw UserFacingException("Không tạo được tài khoản. Vui lòng thử lại.")
+            // The account exists even if the optional name update fails. Auth state still owns the session.
+            user.updateProfile(UserProfileChangeRequest.Builder().setDisplayName(name).build()).await()
+            profileUpdates.value++
+        }
+    }
+    override suspend fun resetPassword(email: String) { withTimeout(20_000) { auth.sendPasswordResetEmail(email).await() } }
+    override suspend fun updateName(name: String) {
+        withTimeout(20_000) {
+            (auth.currentUser ?: throw UserFacingException("Vui lòng đăng nhập lại.")).updateProfile(
+                UserProfileChangeRequest.Builder().setDisplayName(name).build()).await()
+            profileUpdates.value++
+        }
+    }
+    override suspend fun changeEmail(email: String, currentPassword: String) {
+        withTimeout(20_000) {
+            val user = auth.currentUser ?: throw UserFacingException("Vui lòng đăng nhập lại.")
+            user.reauthenticate(EmailAuthProvider.getCredential(user.email.orEmpty(), currentPassword)).await()
+            user.verifyBeforeUpdateEmail(email).await()
+        }
+    }
+    override fun signOut() = auth.signOut()
+}
+
+class FirebaseCatalogRepository(private val db: FirebaseDatabase) : CatalogRepository {
+    private fun values(path: String): Flow<DataSnapshot> = callbackFlow {
+        val ref = db.getReference(path).orderByChild("status").equalTo("published")
+        val listener = object : ValueEventListener {
+            override fun onDataChange(snapshot: DataSnapshot) { trySend(snapshot) }
+            override fun onCancelled(error: DatabaseError) { close(UserFacingException(if (error.code == DatabaseError.PERMISSION_DENIED)
+                "Tài khoản chưa được cấp quyền xem nội dung. Vui lòng thử lại sau." else "Không tải được nội dung. Kiểm tra kết nối và thử lại.")) }
+        }
+        ref.addValueEventListener(listener)
+        awaitClose { ref.removeEventListener(listener) }
+    }
+    override fun observe(): Flow<Catalog> = combine(values("categories"), values("topics")) { categories, topics ->
+        Catalog(categories.children.filter { it.child("status").getValue(String::class.java) == "published" }.mapNotNull {
+            val name = it.child("name").getValue(String::class.java) ?: return@mapNotNull null
+            Category(it.key ?: return@mapNotNull null, name, it.child("sortOrder").getValue(Int::class.java) ?: 0)
+        }.sortedBy { it.order }, topics.children.filter { it.child("status").getValue(String::class.java) == "published" }.mapNotNull {
+            Topic(it.key ?: return@mapNotNull null, it.child("categoryId").getValue(String::class.java) ?: return@mapNotNull null,
+                it.child("title").getValue(String::class.java) ?: return@mapNotNull null,
+                it.child("sortOrder").getValue(Int::class.java) ?: 0,
+                it.child("completionTarget").getValue(Int::class.java) ?: GameRules.PRACTICE_TARGET)
+        }.sortedBy { it.order })
+    }
+}
+
+class ServerClock {
+    private var offset = 0L
+    fun synchronize(serverNow: Long, sentAt: Long, receivedAt: Long) { offset = serverNow - (sentAt + (receivedAt - sentAt) / 2) }
+    fun now() = System.currentTimeMillis() + offset
+}
+
+class FirebaseGameRepository(private val clock: ServerClock,
+    private val functions: FirebaseFunctions = FirebaseFunctions.getInstance("asia-southeast1")) : GameRepository {
+    private suspend fun call(name: String, data: Map<String, Any?> = emptyMap()): JSONObject = withTimeout(20_000) {
+        val sentAt = System.currentTimeMillis()
+        val response = try { functions.getHttpsCallable(name).call(data).await().data }
+        catch (e: FirebaseFunctionsException) {
+            if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED) FirebaseAuth.getInstance().signOut()
+            throw e
+        }
+        val raw = response as? Map<*, *>
+            ?: throw UserFacingException("Dịch vụ trả về dữ liệu không hợp lệ. Vui lòng thử lại.")
+        val json = JSONObject(raw)
+        if (json.has("serverNow")) clock.synchronize(json.getLong("serverNow"), sentAt, System.currentTimeMillis())
+        json
+    }
+    override suspend fun ensureProfile() { call("ensureUserProfile") }
+    override suspend fun dashboard() = WireCodec.dashboard(call("getUserDashboard").getJSONObject("dashboard"))
+    override suspend fun start(mode: QuizMode, topicId: String?, requestId: String) = WireCodec.attempt(call("startAttempt",
+        mapOf("mode" to mode.name, "topicId" to topicId, "requestId" to requestId)).getJSONObject("attempt"))
+    override suspend fun resume(attemptId: String) = WireCodec.attempt(call("resumeAttempt", mapOf("attemptId" to attemptId)).getJSONObject("attempt"))
+    override suspend fun submit(attemptId: String, questionId: String, optionId: String?, requestId: String) = WireCodec.attempt(call("submitAttemptAnswer",
+        mapOf("attemptId" to attemptId, "questionId" to questionId, "optionId" to optionId, "requestId" to requestId)).getJSONObject("attempt"))
+    override suspend fun advance(attemptId: String, requestId: String) = WireCodec.attempt(call("advanceAttempt",
+        mapOf("attemptId" to attemptId, "requestId" to requestId)).getJSONObject("attempt"))
+    override suspend fun leave(attemptId: String, requestId: String) = WireCodec.attempt(call("leaveAttempt",
+        mapOf("attemptId" to attemptId, "requestId" to requestId)).getJSONObject("attempt"))
+    override suspend fun findMatch(kind: String, code: String?, requestId: String) = WireCodec.ticket(call("findBattle",
+        mapOf("kind" to kind, "roomCode" to code, "requestId" to requestId)).getJSONObject("ticket"))
+    override suspend fun matchStatus(ticketId: String) = WireCodec.ticket(call("getBattleTicket", mapOf("ticketId" to ticketId)).getJSONObject("ticket"))
+    override suspend fun cancelMatch(ticketId: String) { call("cancelBattleSearch", mapOf("ticketId" to ticketId)) }
+    override suspend fun leaderboard(period: String, cursor: String?) = WireCodec.leaderboard(call("getLeaderboard", mapOf("period" to period, "cursor" to cursor)).getJSONObject("page"))
+    override suspend fun markRead(ids: List<String>) { call("markNotificationsRead", mapOf("ids" to ids)) }
+    override suspend fun historyDetail(attemptId: String) = WireCodec.result(call("getAttemptResult", mapOf("attemptId" to attemptId)).getJSONObject("result"))
+}
+
+fun friendlyError(error: Throwable): String {
+    if (error is CancellationException && error !is TimeoutCancellationException) throw error
+    return when (error) {
+        is UserFacingException -> error.message.orEmpty()
+        is FirebaseNetworkException, is TimeoutCancellationException -> "Kết nối bị gián đoạn hoặc phản hồi quá lâu. Kiểm tra mạng và thử lại."
+        is FirebaseTooManyRequestsException -> "Bạn thao tác quá nhiều lần. Vui lòng đợi một lúc rồi thử lại."
+        is FirebaseAuthWeakPasswordException -> "Mật khẩu chưa đủ mạnh. Hãy dùng ít nhất 6 ký tự."
+        is FirebaseAuthUserCollisionException -> "Email đã được sử dụng. Hãy đăng nhập hoặc đặt lại mật khẩu."
+        is FirebaseAuthInvalidCredentialsException, is FirebaseAuthInvalidUserException -> "Email hoặc mật khẩu không đúng, hoặc tài khoản không còn khả dụng."
+        is FirebaseAuthException -> when (error.errorCode) {
+            "ERROR_OPERATION_NOT_ALLOWED" -> "Phương thức đăng nhập này chưa được bật. Vui lòng thử lại sau."
+            "ERROR_REQUIRES_RECENT_LOGIN" -> "Vui lòng đăng nhập lại để thực hiện thay đổi này."
+            else -> "Không hoàn tất được xác thực. Vui lòng kiểm tra thông tin và thử lại."
+        }
+        is FirebaseFunctionsException -> when (error.code) {
+            FirebaseFunctionsException.Code.UNAUTHENTICATED -> "Phiên đăng nhập đã hết hiệu lực. Vui lòng đăng nhập lại."
+            FirebaseFunctionsException.Code.NOT_FOUND, FirebaseFunctionsException.Code.UNIMPLEMENTED -> "Tính năng này chưa sẵn sàng. Vui lòng quay lại sau."
+            FirebaseFunctionsException.Code.PERMISSION_DENIED -> "Tài khoản chưa được cấp quyền thực hiện thao tác này."
+            FirebaseFunctionsException.Code.FAILED_PRECONDITION, FirebaseFunctionsException.Code.ALREADY_EXISTS -> "Phiên hoặc lượt chơi đã thay đổi. Hãy tải lại trạng thái để tiếp tục."
+            FirebaseFunctionsException.Code.UNAVAILABLE, FirebaseFunctionsException.Code.DEADLINE_EXCEEDED -> "Dịch vụ đang gián đoạn. Vui lòng thử lại."
+            else -> "Không hoàn tất được thao tác. Vui lòng tải lại trạng thái trước khi thử lại."
+        }
+        else -> "Không tải được dữ liệu. Vui lòng thử lại."
+    }
+}

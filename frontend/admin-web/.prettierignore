@@ -1,0 +1,9 @@
+node_modules
+dist
+coverage
+playwright-report
+test-results
+package-lock.json
+src/data/content-seed.json
+docs/qa
+docs/design-reference
