@@ -1,75 +1,45 @@
-# English Battle — Android frontend
+# English Battle — Frontend
 
-Giao diện Kotlin + Jetpack Compose dựa trên [thiết kế Figma App English Battle](https://www.figma.com/design/KH2g6ct0xPjDKMkR2SzKLk/App-English-Battle?node-id=122-2).
+## Web admin
 
-## Mở trong Android Studio
+Web quản trị nằm riêng trong [`admin-web/`](admin-web/README.md), dùng React + TypeScript + Vite. Chạy `npm ci` rồi `npm run dev` trong thư mục đó, mở `http://127.0.0.1:5173/`. Đã cấu hình Firebase Web và đăng nhập Auth; các trang quản trị vẫn dùng dữ liệu mô phỏng qua **Open demo workspace**, chưa triển khai backend/API quản trị.
 
-1. Chọn **File → Open**, mở thư mục `D:\visual studio\frontend`.
-2. Chọn **Gradle JDK 21** trong Settings → Build, Execution, Deployment → Build Tools → Gradle. Trên máy hiện tại có `C:\Users\Acer\.jdks\jbr-21.0.11`. Gradle 8.13 không chạy được với JDK 25 đang đi kèm bản Android Studio trên máy.
-3. Đồng bộ Gradle, chọn module **app** và chạy trên điện thoại/trình giả lập Android 8.0 trở lên.
+## Android người dùng
 
-`local.properties` đã trỏ đến SDK có sẵn tại `D:\Androidstudio\Sdk`; khi chuyển máy, để Android Studio tạo lại file này.
+Ứng dụng Kotlin + Jetpack Compose. Frontend đã có Firebase Authentication thật, đọc danh mục Realtime Database và lớp giao tiếp để tích hợp backend học tập/thi đấu.
+
+## Chạy
+
+Mở thư mục `frontend` trong Android Studio; dùng Gradle JDK 21. Trên máy hiện tại:
 
 ```powershell
 $env:JAVA_HOME='C:\Users\Acer\.jdks\jbr-21.0.11'
-.\gradlew.bat assembleDebug
-```
-
-APK sau khi build: `app/build/outputs/apk/debug/app-debug.apk`.
-
-## Màn hình và luồng
-
-- Splash → đăng nhập, đăng ký, quên mật khẩu.
-- Trang chủ → thử thách hằng ngày, luyện tập, bài kiểm tra, thi đấu, bảng xếp hạng.
-- Bốn kỹ năng: từ vựng, ngữ pháp, nghe, đọc hiểu; mỗi kỹ năng có danh sách chủ đề.
-- Bài tập 10 câu, chọn đáp án, giải thích, đồng hồ, kết quả và xem lại đáp án.
-- Sảnh thi đấu, tìm đối thủ mẫu, trận đấu, kết quả và lịch sử.
-- Bảng xếp hạng tuần/tháng, biểu đồ tiến độ.
-- Hồ sơ, chỉnh sửa thông tin, thành tích, thông báo, cài đặt.
-
-Để xem giao diện: nhập email hợp lệ và mật khẩu bất kỳ có ít nhất 6 ký tự. Đây là **luồng demo frontend**, không xác thực tài khoản thật. Không lưu mật khẩu.
-
-## Phạm vi dữ liệu mẫu
-
-- Chưa kết nối backend, Firebase, Google OAuth, gửi email hoặc ghép trận thật. Các thao tác cần dịch vụ này hiển thị thông tin rõ ràng.
-- Chế độ thi đấu dùng đối thủ mẫu Maya; bảng xếp hạng, lịch sử, XP và biểu đồ là dữ liệu minh họa. Các chủ đề trong cùng kỹ năng dùng chung bộ câu hỏi mẫu.
-- Bài nghe dùng Text-to-Speech có sẵn trên Android. Thiết bị cần cài giọng tiếng Anh. Nếu không có, màn hình hiển thị văn bản thay thế.
-- Tên/email hồ sơ, âm lượng và tùy chọn thông báo được lưu cục bộ. Tùy chọn thông báo chưa đăng ký push notification.
-- Chế độ sáng và tiếng Việt theo Figma. Không có giao diện tối/bản dịch tiếng Anh trong thiết kế này.
-
-## Thiết kế và kích thước
-
-- Font Nunito, logo và 28 ảnh nguồn được lấy từ tài nguyên của file Figma được cung cấp. Một số ảnh đã loại bỏ vùng trong suốt dư thừa để hiển thị chính xác trong Compose.
-- Bố cục dựng bằng các thành phần Android thật; không dùng ảnh chụp toàn màn hình để giả lập UI.
-- Dùng `dp`/`sp`, safe area và IME insets; màn hình dài cuộn được; vùng nội dung giới hạn 600 dp trên thiết bị lớn.
-- Không vẽ thanh trạng thái iOS trong Figma; Android hiển thị thanh trạng thái và điều hướng của thiết bị.
-- Hai avatar đầu chó/mèo và các biểu tượng nhỏ được dựng lại bằng vector/Material Icons vì không có bản xuất vector từ phiên Figma khách. Vì vậy chưa thể coi là bản đối chiếu pixel chính xác 100%.
-
-## Cấu trúc
-
-```text
-app/src/main/java/com/englishbattle/app/
-  MainActivity.kt          Điểm khởi chạy
-  data/QuizData.kt         Bộ câu hỏi mẫu
-  ui/App.kt               Điều hướng và trạng thái chung
-  ui/Theme.kt             Màu, font, kiểu chữ
-  ui/Components.kt        Nút, thẻ, thanh tiêu đề, progress
-  ui/AuthScreens.kt       Splash và tài khoản
-  ui/LearningScreens.kt   Trang chủ và luyện tập
-  ui/QuizScreens.kt       Làm bài và kết quả
-  ui/BattleScreens.kt     Thi đấu và lịch sử
-  ui/CommunityScreens.kt  Xếp hạng, tiến độ, thành tích
-  ui/ProfileScreens.kt    Hồ sơ, thông báo, cài đặt
-```
-
-## Kiểm tra
-
-```powershell
 .\gradlew.bat assembleDebug lintDebug testDebugUnitTest
-# Cần thiết bị Android đang chạy:
 .\gradlew.bat connectedDebugAndroidTest
 ```
 
-Bộ kiểm thử giao diện đi qua đăng nhập, phản hồi câu trả lời và chụp các màn hình. Ảnh được lưu trong thư mục external files `screenshots` của app trên thiết bị kiểm thử.
+APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
-Tài liệu nền tảng: [Jetpack Compose — Android Developers](https://developer.android.com/develop/ui/compose/setup).
+## Chế độ dữ liệu
+
+- **Firebase thật (mặc định):** đăng ký/đăng nhập email, đặt lại mật khẩu, đổi tên/email và khôi phục phiên. Danh mục đọc `categories`/`topics` published. Cần bật Email/Password và cấp Rules phù hợp. Lỗi dịch vụ được hiển thị, không chuyển sang dữ liệu giả.
+- **Mô phỏng (chỉ debug):** bấm “Khám phá bản mô phỏng” ở màn đăng nhập. Dùng 250 câu/25 chủ đề từ seed, thử cả 4 chế độ, rating/xu/tiến độ/lịch sử lưu riêng trên thiết bị. Đối thủ và phòng đều được ghi rõ mô phỏng. Không tạo tài khoản hay giao dịch Firebase.
+- **Backend:** các callable đã được định nghĩa ở frontend, chưa được triển khai bởi thay đổi này. Chấm điểm, nhận thưởng, ghép trận thật và tổng hợp dashboard cần backend. Thông báo đẩy chưa có dịch vụ FCM.
+
+## Tài liệu bàn giao
+
+Xem [10 nhóm việc, hợp đồng API và các bước kiểm tra](docs/FRONTEND-HANDOFF.md).
+
+Chuẩn bị ngày 25/10: [bàn giao trước backend](docs/PRE-BACKEND-HANDOFF.md), [hợp đồng máy đọc và Rules đề xuất](contracts/README.md), [công cụ kiểm tra/emulator/so export thật](verification/README.md). Các thay đổi dữ liệu/nghiệp vụ giữ nguyên giao diện theo Figma. Chưa viết backend, triển khai Rules hoặc xác nhận toàn bộ dữ liệu cloud.
+
+Giao diện đã được khôi phục về bố cục thiết kế gốc, bỏ XP/level: [phạm vi và giới hạn đối chiếu Figma](docs/FIGMA-RESTORATION.md), [ảnh xem nhanh](docs/figma-restoration-preview.png).
+
+Kết quả kiểm thử: [QA ngày 24/10/2026](docs/QA-2026-10-24.md). Khi seed thay đổi, chạy `pwsh -File tools/build-demo-content.ps1` từ thư mục frontend để tạo lại asset chỉ dành cho debug.
+
+`contracts/database.rules.proposed.json` là bản Rules đề xuất được kiểm thử bằng emulator, yêu cầu `accountAccess` active và chặn client ghi dữ liệu. Rules gốc deny-all được giữ nguyên; bản đề xuất chưa được triển khai lên Firebase.
+
+## Mã nguồn
+
+`data/` chứa model, repository interfaces, Firebase adapter, DTO codec và mô phỏng. `ui/UserViewModels.kt` quản lý trạng thái theo nhóm chức năng; `ui/App.kt` điều hướng, lifecycle và phiên người dùng. Các màn hình có loading/rỗng/lỗi/retry và hỗ trợ cuộn, TTS, kích thước chữ lớn.
+
+Tài khoản và dữ liệu Firebase thật cần được kiểm thử tích hợp trên môi trường staging trước phát hành. Bản release không đóng gói seed có đáp án của demo.

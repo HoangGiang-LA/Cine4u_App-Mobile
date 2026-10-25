@@ -1,6 +1,9 @@
 package com.englishbattle.app.ui
 
+import android.content.Context
+import android.os.Bundle
 import android.speech.tts.TextToSpeech
+import androidx.activity.compose.BackHandler
 import androidx.compose.foundation.*
 import androidx.compose.foundation.layout.*
 import androidx.compose.foundation.shape.*
@@ -16,138 +19,194 @@ import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.text.style.TextAlign
+import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.*
+import androidx.lifecycle.Lifecycle
+import androidx.lifecycle.LifecycleEventObserver
+import androidx.lifecycle.compose.LocalLifecycleOwner
+import androidx.lifecycle.repeatOnLifecycle
 import com.englishbattle.app.R
-import com.englishbattle.app.data.QuizData
+import com.englishbattle.app.data.*
 import kotlinx.coroutines.delay
 import java.util.Locale
 
-@Composable fun QuizScreen(category: String, topic: String, battle: Boolean, back: () -> Unit, finish: (List<Int>) -> Unit) {
-    val questions = remember(category) { QuizData.questions(category) }
-    var index by rememberSaveable { mutableIntStateOf(0) }
-    var picks by rememberSaveable { mutableStateOf(listOf<Int>()) }
-    var selected by rememberSaveable { mutableIntStateOf(-1) }
-    var seconds by rememberSaveable { mutableIntStateOf(30) }
-    var quit by rememberSaveable { mutableStateOf(false) }
-    val q = questions[index]
-    val context = LocalContext.current
-    var ttsReady by remember { mutableStateOf(false) }
-    val speech = remember { TextToSpeech(context) { ttsReady = it == TextToSpeech.SUCCESS } }
-    var speechError by remember { mutableStateOf(false) }
-    DisposableEffect(speech) { onDispose { speech.stop(); speech.shutdown() } }
-    LaunchedEffect(index, selected, quit) {
-        if(selected == -1 && !quit) {
-            while(seconds > 0) { delay(1000); seconds-- }
-            selected = -2
+@Composable fun QuizScreen(state: LoadState<AttemptState>, busy: Boolean, error: String?, preferenceKey: String,
+    now: () -> Long, back: () -> Unit, submit: (String?) -> Unit, advance: () -> Unit, leave: () -> Unit, retry: () -> Unit, topicTitle: String = "") {
+    val a = state.data
+    if (a == null) {
+        Screen("Phiên làm bài", back) {
+            if (busy || state.loading) LoadingPanel("Đang mở phiên...")
+            else EmptyPanel("Chưa mở được phiên. Bạn có thể quay lại để bắt đầu hoặc tải lại phiên đang dở.")
+            error?.let { ErrorPanel(it, retry) }
+        }
+        return
+    }
+    val q = a.current
+    if (q == null || a.status !in listOf("active", "waiting")) {
+        Screen(a.mode.title, back) { LoadingPanel("Đang cập nhật kết quả..."); Secondary("Tải lại trạng thái", onClick = retry) }
+        return
+    }
+    var selected by rememberSaveable(a.id, q.id) { mutableStateOf<String?>(null) }
+    var quit by rememberSaveable(a.id) { mutableStateOf(false) }
+    var seconds by remember(a.deadlineAt) { mutableIntStateOf(remainingSeconds(a.deadlineAt, now())) }
+    val owner = LocalLifecycleOwner.current
+    LaunchedEffect(a.deadlineAt, owner) {
+        owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
+            while (true) { seconds = remainingSeconds(a.deadlineAt, now()); delay(200) }
         }
     }
-    androidx.activity.compose.BackHandler { quit = true }
-    Screen(if(battle) "" else category, { quit = true }, action = {
-        Text("00:${seconds.toString().padStart(2, '0')}", Modifier.padding(end = 8.dp), color = Color(0xFFD7738C), fontSize = 12.sp)
+    LaunchedEffect(a.id, q.id, seconds, a.receipt, busy, error) {
+        if (seconds == 0 && a.receipt == null && !busy && error == null && a.status == "active") submit(null)
+    }
+    BackHandler { quit = true }
+    Screen(if (a.mode == QuizMode.BATTLE) "" else if (a.mode == QuizMode.PRACTICE) skillNames[skillIds.indexOf(q.categoryId).coerceAtLeast(0)] else a.mode.title, { quit = true }, action = {
+        Text("00:${seconds.toString().padStart(2, '0')}", color = if (seconds <= 5) MaterialTheme.colorScheme.error else Purple)
     }) {
-        if(battle) {
-            Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
-                FighterCard("You", picks.zip(questions).count { it.first == it.second.correct } * 100, false, Modifier.weight(1f))
-                Small("VS")
-                FighterCard("Maya", index * 70, true, Modifier.weight(1f))
-            }
+        if (a.mode == QuizMode.BATTLE) Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(16.dp)) {
+            FighterCard("You", if (a.receipts.all { it.correct != null }) a.receipts.count { it.correct == true } else null, false, Modifier.weight(1f))
+            Small("VS")
+            FighterCard(a.opponentName, null, true, Modifier.weight(1f))
         }
-        Progress((index + 1) / 10f)
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Small(if (battle) "QUESTION ${index + 1} OF 10" else "Câu ${index + 1}/10"); Small(topic) }
-        Small(if(category == "Nghe") "Nghe và chọn đáp án đúng" else if(category == "Đọc hiểu") "Đọc đoạn văn và trả lời câu hỏi" else "Chọn một đáp án đúng")
-        if(category == "Nghe") {
-            Panel(color = Blue) {
-                IconButton({
-                    if(ttsReady && speech.setLanguage(Locale.US) >= TextToSpeech.LANG_AVAILABLE) {
-                        val volume = context.getSharedPreferences("english_battle_ui", android.content.Context.MODE_PRIVATE).getFloat("sound", .7f)
-                        val params = android.os.Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume) }
-                        speech.speak(q.prompt, TextToSpeech.QUEUE_FLUSH, params, "question-$index")
-                    } else speechError = true
-                }, Modifier.align(Alignment.CenterHorizontally).size(76.dp).clip(CircleShape).background(Color.White)) {
-                    Icon(Icons.Outlined.VolumeUp, "Nghe câu hỏi", Modifier.size(40.dp), tint = Purple)
-                }
-                Text("Nhấn để nghe", Modifier.fillMaxWidth(), textAlign = TextAlign.Center, color = Purple)
-                if (speechError) Text("Thiết bị chưa có giọng tiếng Anh. Nội dung: ${q.prompt}", style = MaterialTheme.typography.bodySmall)
-            }
-        } else Text(q.prompt, style = MaterialTheme.typography.headlineMedium)
-        Spacer(Modifier.height(4.dp))
-        q.options.forEachIndexed { i, answer ->
-            val correct = selected != -1 && i == q.correct
-            val wrong = selected == i && i != q.correct
-            val color = if (correct) Green else if (wrong) Color(0xFFC9687B) else Ink
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp))
-                .background(if(correct) Mint else if(wrong) Rose else Color.White)
-                .border(1.dp, if(correct) Green.copy(alpha=.4f) else if(wrong) Color(0xFFE6A8B5) else Line, RoundedCornerShape(16.dp))
-                .clickable(enabled = selected == -1) { selected = i }
+        a.reconnectDeadlineAt?.let { deadline -> Text("Thời hạn trở lại trận: ${remainingSeconds(deadline, now())} giây", color = MaterialTheme.colorScheme.error) }
+        Progress((a.index + 1f) / a.questions.size)
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+            Small(if (a.mode == QuizMode.BATTLE) "QUESTION ${a.index + 1} OF ${a.questions.size}" else "Câu ${a.index + 1}/${a.questions.size}")
+            Small(topicTitle, Modifier.weight(1f).padding(start = 12.dp).wrapContentWidth(Alignment.End), color = Muted)
+        }
+        Small(if (q.audioText.isNotBlank()) "Nghe và chọn đáp án đúng" else if (q.passage.isNotBlank()) "Đọc đoạn văn và trả lời câu hỏi" else "Chọn một đáp án đúng")
+        if (q.passage.isNotBlank()) Panel(color = Blue) { Text(q.passage) }
+        if (q.audioText.isNotBlank()) AudioQuestion(q.audioText, preferenceKey, q.id)
+        Text(q.prompt, style = MaterialTheme.typography.headlineMedium)
+        q.options.forEachIndexed { index, option ->
+            val picked = a.receipt?.optionId ?: selected
+            val chosen = option.id == picked
+            val confirmed = a.receipt != null && chosen
+            val color = if (confirmed && a.receipt?.correct == false) Rose else if (chosen) Lavender else Color.White
+            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(color)
+                .border(1.dp, if (chosen) Purple else Line, RoundedCornerShape(16.dp))
+                .clickable(enabled = a.receipt == null && !busy && seconds > 0 && a.status == "active") { selected = option.id }
                 .padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                Text("${'A'+i}.", color = color, fontWeight = FontWeight.Bold)
-                Text(answer, Modifier.weight(1f), color = color, fontWeight = if(correct) FontWeight.Bold else FontWeight.Normal)
-                if(correct) Icon(Icons.Outlined.CheckCircle, null, Modifier.size(20.dp), tint = Green)
-                if(wrong) Icon(Icons.Outlined.Cancel, null, Modifier.size(20.dp), tint = color)
+                Text("${'A' + index}.", fontSize = 14.sp)
+                Text(option.text, Modifier.weight(1f), fontSize = 14.sp)
+                if (chosen) Icon(Icons.Outlined.CheckCircle, "Đã chọn", tint = Purple)
             }
         }
-        if(selected != -1) {
-            Column(verticalArrangement = Arrangement.spacedBy(5.dp)) {
-                Text(if(selected == q.correct) "Chính xác!" else if(selected == -2) "Hết thời gian" else "Chưa chính xác", color = if(selected == q.correct) Green else Color(0xFFC9687B), fontWeight = FontWeight.Bold)
-                Small(q.explanation)
+        error?.let { ErrorPanel(it, retry) }
+        if (busy) LinearProgressIndicator(Modifier.fillMaxWidth())
+        a.receipt?.let { receipt ->
+            Panel(color = if (receipt.correct == false) Peach else Mint) {
+                Text(when { receipt.optionId == null -> "Đã ghi nhận hết thời gian."; receipt.correct == true -> "Chính xác!";
+                    receipt.correct == false -> "Chưa chính xác. Xem giải thích khi kết thúc bài."; else -> "Đã ghi nhận đáp án." })
             }
-        }
-        Spacer(Modifier.height(12.dp))
-        Primary(if(index == 9) "Xem kết quả" else "Câu tiếp theo", enabled = selected != -1) {
-            val all = picks + selected
-            if(index == 9) finish(all) else { picks = all; index++; selected = -1; seconds = 30; speech.stop(); speechError = false }
-        }
+            Primary(if (a.index == a.questions.lastIndex) "Xem kết quả" else if (a.mode == QuizMode.BATTLE) "Cập nhật lượt tiếp theo" else "Câu tiếp theo", enabled = !busy, onClick = advance)
+        } ?: Primary(if (busy) "Đang gửi..." else if (seconds == 0) "Hết thời gian" else "Gửi đáp án",
+            enabled = selected != null && !busy && seconds > 0 && a.status == "active") { submit(selected) }
     }
-    if(quit) AlertDialog(onDismissRequest = { quit = false }, title = { Text("Rời bài học?") },
-        text = { Text("Tiến độ bài hiện tại sẽ không được lưu.") },
-        confirmButton = { TextButton(back) { Text("Rời bài học") } }, dismissButton = { TextButton({ quit = false }) { Text("Tiếp tục học") } })
+    if (quit) AlertDialog(onDismissRequest = { if (!busy) quit = false }, title = { Text("Rời ${a.mode.title.lowercase()}?") },
+        text = { Text(if (a.mode == QuizMode.BATTLE) "Chủ động rời trận được tính là thua. Đồng hồ vẫn đang chạy."
+            else if (a.mode == QuizMode.DAILY) "Bạn sẽ dùng hết lượt hôm nay và không nhận thưởng. Đồng hồ vẫn đang chạy."
+            else "Bài này sẽ kết thúc và không nhận thưởng. Đồng hồ vẫn đang chạy.") },
+        confirmButton = { TextButton({ quit = false; leave() }, enabled = !busy) { Text("Xác nhận rời phiên") } },
+        dismissButton = { TextButton({ quit = false }) { Text("Tiếp tục") } })
 }
 
-@Composable fun FighterCard(name: String, points: Int, cat: Boolean, modifier: Modifier) {
-    Column(modifier.clip(RoundedCornerShape(20.dp)).background(if(cat) Rose else Blue).padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
+@Composable private fun FighterCard(name: String, points: Int?, cat: Boolean, modifier: Modifier) {
+    Column(modifier.clip(RoundedCornerShape(20.dp)).background(if (cat) Rose else Blue).padding(14.dp), horizontalAlignment = Alignment.CenterHorizontally) {
         MascotFace(cat, Modifier.size(66.dp))
-        Text(name, fontWeight = FontWeight.Bold)
-        Text("$points pts", color = if(cat) Color(0xFFD77E8C) else Color(0xFF5880DA), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
+        Text(name, fontWeight = FontWeight.Bold, textAlign = TextAlign.Center, maxLines = 1, overflow = TextOverflow.Ellipsis)
+        Text("${points?.toString() ?: "—"} pts", color = if (cat) Color(0xFFD77E8C) else Color(0xFF5880DA), fontSize = 22.sp, fontWeight = FontWeight.ExtraBold)
     }
 }
 
-@Composable fun ResultScreen(score: Int, battle: Boolean, back: () -> Unit, review: () -> Unit, again: () -> Unit) {
-    val won = score >= 7
-    Screen(if(battle) "Kết quả trận đấu" else "Hoàn thành!", back) {
-        Art(if(battle) R.drawable.mascot_winner else R.drawable.mascot_happy, Modifier.fillMaxWidth().height(if(battle) 195.dp else 170.dp))
-        if(battle) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) { Pill(if(won) "Bạn đã thắng!" else "Cố gắng lần sau!", Color.White, Color(0xFFEC53A2)) }
-        Text(if(battle) "$score - 7" else "$score/10", Modifier.fillMaxWidth(), color = Green, fontSize = 48.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
-        Text(if(battle) "Bạn                 Maya" else if(score >= 7) "Làm tốt lắm!" else "Tiếp tục luyện tập nhé!", Modifier.fillMaxWidth(), color = Muted, textAlign = TextAlign.Center)
-        if(battle) {
-            Panel { Stats(listOf((if(won) "+28" else "-15") to "Rating", "+20" to "XP", "+100" to "Gold")) }
-            Primary("↻  Đấu lại", onClick = again)
-            Secondary("▣  Xem đáp án", onClick = review)
-        } else {
-            Panel {
-                Text("✓  Độ chính xác: ${score * 10}%", color = Green)
-                Text("⚡  Hoàn thành 10 câu hỏi", color = Purple)
+@Composable private fun AudioQuestion(text: String, preferenceKey: String, questionId: String) {
+    val context = LocalContext.current
+    val owner = LocalLifecycleOwner.current
+    var ready by remember { mutableStateOf(false) }
+    var error by remember(questionId) { mutableStateOf(false) }
+    val speech = remember(context) { TextToSpeech(context) { ready = it == TextToSpeech.SUCCESS } }
+    LaunchedEffect(questionId) { speech.stop() }
+    DisposableEffect(speech, owner) {
+        val observer = LifecycleEventObserver { _, event -> if (event == Lifecycle.Event.ON_STOP) speech.stop() }
+        owner.lifecycle.addObserver(observer)
+        onDispose { owner.lifecycle.removeObserver(observer); speech.stop(); speech.shutdown() }
+    }
+    Panel(color = Blue) {
+        IconButton({
+            if (ready && speech.setLanguage(Locale.US) >= TextToSpeech.LANG_AVAILABLE) {
+                val volume = context.getSharedPreferences(preferenceKey, Context.MODE_PRIVATE).getFloat("sound", .7f)
+                val params = Bundle().apply { putFloat(TextToSpeech.Engine.KEY_PARAM_VOLUME, volume) }
+                if (speech.speak(text, TextToSpeech.QUEUE_FLUSH, params, questionId) == TextToSpeech.ERROR) error = true
+            } else error = true
+        }, Modifier.align(Alignment.CenterHorizontally).size(64.dp)) { Icon(Icons.Outlined.VolumeUp, "Nghe nội dung", Modifier.size(40.dp), tint = Purple) }
+        Text("Nhấn loa để nghe", Modifier.fillMaxWidth(), textAlign = TextAlign.Center)
+        if (error) Text("Chưa phát được giọng tiếng Anh. Nội dung thay thế: $text")
+    }
+}
+
+@Composable fun ResultScreen(state: LoadState<QuizResult>, back: () -> Unit, review: () -> Unit, again: () -> Unit, skills: List<SkillStat> = emptyList()) {
+    Screen(if (state.data?.mode == QuizMode.BATTLE) "Kết quả trận đấu" else "Hoàn thành!", back) {
+        if (state.loading) LoadingPanel()
+        state.error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        val r = state.data
+        if (r == null && !state.loading) EmptyPanel("Chưa có kết quả được xác nhận.")
+        if (r != null) {
+            val battle = r.mode == QuizMode.BATTLE
+            Art(if (battle) R.drawable.mascot_winner else R.drawable.mascot_happy, Modifier.fillMaxWidth().height(if (battle) 195.dp else 170.dp))
+            if (battle) Box(Modifier.fillMaxWidth(), contentAlignment = Alignment.Center) {
+                Pill(when (r.outcome) { "win" -> "Bạn đã thắng!"; "draw" -> "Hai người hòa nhau"; else -> "Cố gắng lần sau!" }, Color.White, Color(0xFFEC53A2))
             }
-            Title("Kỹ năng")
-            listOf("Từ vựng" to .7f, "Ngữ pháp" to .8f, "Nghe" to .5f, "Đọc hiểu" to .8f).forEach { (label, value) ->
-                Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                    Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(label); Small("${(value*100).toInt()}%", color = Purple) }
-                    Progress(value)
+            Text(if (battle) "${r.correct} - ${r.opponentCorrect}" else "${r.correct}/${r.total}", Modifier.fillMaxWidth(),
+                color = Green, fontSize = 48.sp, fontWeight = FontWeight.ExtraBold, textAlign = TextAlign.Center)
+            if (battle) Row(Modifier.fillMaxWidth()) {
+                Text("Bạn", Modifier.weight(1f), color = Muted, textAlign = TextAlign.Center)
+                Text(r.opponentName, Modifier.weight(1f), color = Muted, textAlign = TextAlign.Center)
+            } else Text(when {
+                r.outcome == "abandoned" -> "Đã kết thúc bài đang dở"
+                r.correct * 100 / r.total >= 70 -> "Làm tốt lắm!"
+                else -> "Tiếp tục luyện tập nhé!"
+            }, Modifier.fillMaxWidth(), color = Muted, textAlign = TextAlign.Center)
+            if (battle) {
+                Panel { Stats(listOf(signed(r.ratingDelta) to "Rating", signed(r.coins) to "Xu")) }
+                Primary("↻  Đấu lại", onClick = again)
+                if (r.reviews.isNotEmpty()) Secondary("▣  Xem đáp án", onClick = review)
+            } else {
+                Panel {
+                    Text("✓  Độ chính xác: ${r.correct * 100 / r.total}%", color = Green)
+                    Text(if (r.outcome == "abandoned") "Bài chưa hoàn thành · Không nhận thưởng" else "⚡  Hoàn thành ${r.total} câu hỏi", color = Purple)
+                    if (r.coins > 0) Small("+${r.coins} xu", color = Green)
+                }
+                Title("Kỹ năng")
+                skillIds.forEachIndexed { i, id ->
+                    val stat = skills.find { it.id == id }
+                    val reviews = r.reviews.filter { it.question.categoryId == id }
+                    val count = stat?.answered ?: reviews.size
+                    val correct = stat?.correct ?: reviews.count { it.correctId == it.pickedId }
+                    val value = if (count > 0) correct.toFloat() / count else 0f
+                    Column(verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
+                            Text(skillNames[i]); Small(if (count > 0) "${(value * 100).toInt()}%" else "—", color = Purple)
+                        }
+                        Progress(value)
+                    }
+                }
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (r.reviews.isNotEmpty()) Secondary("Xem đáp án", Modifier.weight(1f), review)
+                    Primary("Luyện tập", Modifier.weight(1f), onClick = again)
                 }
             }
-            Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) { Secondary("Xem đáp án", Modifier.weight(1f), review); Primary("Luyện tập", Modifier.weight(1f), onClick = again) }
         }
     }
-}
-
-@Composable fun ReviewScreen(category: String, answers: List<Int>, back: () -> Unit) {
+}@Composable fun ReviewScreen(result: QuizResult?, back: () -> Unit) {
     Screen("Xem đáp án", back) {
-        QuizData.questions(category).forEachIndexed { i, q ->
+        if (result == null || result.reviews.isEmpty()) EmptyPanel("Đáp án chưa được công bố cho phiên này.")
+        result?.reviews?.forEachIndexed { i, review ->
             Panel {
-                Small("CÂU ${i+1}", color = Purple)
-                Text(q.prompt, fontWeight = FontWeight.Bold)
-                Text("Đáp án: ${q.options[q.correct]}", color = Green)
-                answers.getOrNull(i)?.let { picked -> if(picked != q.correct) Text("Bạn chọn: ${q.options.getOrNull(picked) ?: "Hết thời gian"}", color = Color(0xFFC9687B)) }
-                Small(q.explanation)
+                Small("CÂU ${i + 1}")
+                if (review.question.passage.isNotBlank()) Small(review.question.passage)
+                Text(review.question.prompt, fontWeight = FontWeight.Bold)
+                Text("Bạn chọn: ${review.question.options.find { it.id == review.pickedId }?.text ?: "Không trả lời"}")
+                Text("Đáp án: ${review.question.options.find { it.id == review.correctId }?.text ?: "Chưa có"}", color = Green)
+                Text(review.explanation)
             }
         }
     }

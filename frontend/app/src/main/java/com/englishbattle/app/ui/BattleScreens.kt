@@ -39,67 +39,113 @@ import kotlinx.coroutines.delay
     }
 }
 
-@Composable fun BattleScreen(back: () -> Unit, play: (Int) -> Unit, history: () -> Unit) {
+@Composable fun BattleScreen(state: com.englishbattle.app.data.LoadState<com.englishbattle.app.data.Dashboard>,
+    busy: Boolean, back: () -> Unit, play: (String) -> Unit, history: () -> Unit, privateRoom: () -> Unit) {
     Screen("Thi đấu", back, action = { IconButton(history) { Icon(Icons.Outlined.History, "Lịch sử thi đấu", tint = Muted) } }) {
         Panel(color = Yellow) {
             Row(verticalAlignment = Alignment.CenterVertically) {
-                Column(Modifier.weight(1f)) { Small("♜ Điểm cup", color = Color(0xFFAC985D)); Text("1,284", fontSize = 40.sp, fontWeight = FontWeight.ExtraBold); Small("Sẵn sàng tỏa sáng!") }
+                Column(Modifier.weight(1f)) {
+                    Small("♜ Điểm cup", color = Color(0xFFAC985D))
+                    Text(state.data?.rating?.toString() ?: "—", fontSize = 40.sp, fontWeight = FontWeight.ExtraBold)
+                    Small("Sẵn sàng tỏa sáng!")
+                }
                 Art(R.drawable.mascot_trophy, Modifier.size(120.dp))
             }
             HorizontalDivider(color = Color(0xFFEEDFAD))
-            Stats(listOf("37" to "Trận đấu", "22" to "Thắng", "4" to "Thua"))
+            val d = state.data
+            Stats(listOf(d?.let { (it.wins + it.losses + it.draws).toString() }.orEmpty().ifBlank { "—" } to "Trận đấu",
+                (d?.wins?.toString() ?: "—") to "Thắng", (d?.losses?.toString() ?: "—") to "Thua"))
         }
         Title("Chọn chế độ chơi")
-        ModeRow("Thi đấu nhanh", "Ghép đối thủ, vào trận ngay!", Icons.Outlined.Bolt, Lavender) { play(0) }
-        ModeRow("Thi đấu theo ngày", "Thử thách mới mỗi ngày", Icons.Outlined.CalendarMonth, Blue) { play(1) }
-        ModeRow("Phòng riêng", "Tạo phòng, rủ bạn cùng chơi", Icons.Outlined.MeetingRoom, Mint) { play(2) }
+        ModeRow("Thi đấu nhanh", "Ghép đối thủ, vào trận ngay!", Icons.Outlined.Bolt, Lavender) { if (!busy) play("quick") }
+        ModeRow("Thi đấu theo ngày", "Thử thách mới mỗi ngày", Icons.Outlined.CalendarMonth, Blue) { if (!busy) play("daily") }
+        ModeRow("Phòng riêng", "Tạo phòng, rủ bạn cùng chơi", Icons.Outlined.MeetingRoom, Mint) { if (!busy) privateRoom() }
         Small("Mỗi trận đấu, thêm một bước tiến!", Modifier.fillMaxWidth().wrapContentWidth())
     }
 }
 @Composable private fun ModeRow(title: String, subtitle: String, icon: androidx.compose.ui.graphics.vector.ImageVector, color: Color, click: () -> Unit) {
-    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(color).clickable(onClick=click).padding(18.dp),
+    Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(color).clickable(onClick = click).padding(18.dp),
         horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.CenterVertically) {
-        IconTile(icon, Purple, Color.White.copy(alpha=.35f))
-        Column(Modifier.weight(1f)) { Text(title, fontWeight=FontWeight.Bold); Small(subtitle) }
+        IconTile(icon, Purple, Color.White.copy(alpha = .35f))
+        Column(Modifier.weight(1f)) { Text(title, fontWeight = FontWeight.Bold); Small(subtitle) }
         Text("›", color = Muted, fontSize = 22.sp)
     }
 }
-
-@Composable fun MatchingScreen(cancel: () -> Unit, start: () -> Unit) {
-    var found by rememberSaveable { mutableStateOf(false) }
-    LaunchedEffect(Unit) { delay(2500); found = true }
-    Screen("Thi đấu", cancel) {
-        Spacer(Modifier.height(40.dp))
-        Box(Modifier.fillMaxWidth().height(230.dp), contentAlignment = Alignment.Center) {
-            repeat(3) { i -> Box(Modifier.size((140+i*35).dp).border(1.dp, Line, CircleShape)) }
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
-                Column(horizontalAlignment = Alignment.CenterHorizontally) { MascotFace(false, Modifier.size(85.dp)); Small("Bạn") }
-                Text("VS", color = Purple, fontWeight = FontWeight.ExtraBold)
-                Column(horizontalAlignment = Alignment.CenterHorizontally) { MascotFace(true, Modifier.size(85.dp)); Small(if(found) "Maya" else "Đối thủ") }
-            }
+@Composable fun PrivateRoomScreen(busy: Boolean, back: () -> Unit, create: () -> Unit, join: (String) -> Unit) {
+    var code by rememberSaveable { mutableStateOf("") }
+    var error by rememberSaveable { mutableStateOf<String?>(null) }
+    Screen("Phòng riêng", back) {
+        Panel { Text("Tạo phòng và chia sẻ mã với bạn bè."); Primary("Tạo phòng", enabled = !busy, onClick = create) }
+        Title("Tham gia phòng")
+        AuthField(code, { code = it.uppercase(java.util.Locale.ROOT).filter(Char::isLetterOrDigit).take(6); error = null }, "Mã phòng 6 ký tự", Icons.Outlined.MeetingRoom, enabled = !busy)
+        error?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        Primary("Vào phòng", enabled = !busy) {
+            if (!code.matches(Regex("[A-Z0-9]{6}"))) error = "Mã phòng cần đúng 6 chữ hoặc số." else join(code)
         }
-        Text(if(found) "Đã tìm thấy đối thủ!" else "Đang tìm đối thủ...", Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
-        Text("Sẵn sàng cho một thử thách mới nào!", Modifier.fillMaxWidth(), color = Muted, textAlign = TextAlign.Center)
-        if(found) Primary("Bắt đầu trận đấu", onClick = start) else LinearProgressIndicator(Modifier.fillMaxWidth(), color = Purple, trackColor = Lavender)
-        Secondary("Hủy tìm kiếm", onClick = cancel)
-        Spacer(Modifier.height(40.dp))
-        Panel(color = Blue) { Text("♧  Mẹo nhỏ: Tập trung 15 giây để đọc kỹ câu hỏi!", fontSize = 12.sp, color = Color(0xFF7390AA)) }
     }
 }
 
-@Composable fun HistoryScreen(back: () -> Unit, result: () -> Unit) {
-    val scores = listOf("8 - 7", "6 - 9", "9 - 5", "7 - 6", "7 - 8", "10 - 6", "5 - 7", "8 - 6")
-    val avatars = listOf(R.drawable.figma_13, R.drawable.figma_14, R.drawable.figma_15, R.drawable.figma_16)
-    Screen("Lịch sử thi đấu", back) {
-        scores.forEachIndexed { i, score ->
-            val win = i !in listOf(1,4,6)
-            Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable(onClick=result).padding(vertical = 10.dp),
-                verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
-                Art(avatars[i%4], Modifier.size(50.dp).clip(CircleShape))
-                Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) { Text(if(win) "Thắng" else "Thua", fontWeight = FontWeight.ExtraBold, color = if(win) Green else Color(0xFFD07483), fontSize = 20.sp); Small(if(i<3) "Hôm nay ${21-i}:15" else "Hôm qua ${18-i}:30") }
-                Column(horizontalAlignment = Alignment.End) { Text(score, fontWeight = FontWeight.Bold); Small(if(win) "+28" else "-15", color = if(win) Green else Color(0xFFD07483)) }
+@Composable fun MatchingScreen(state: com.englishbattle.app.data.LoadState<com.englishbattle.app.data.MatchTicket>, busy: Boolean,
+    error: String?, demo: Boolean, cancel: () -> Unit, start: () -> Unit, retry: () -> Unit, back: () -> Unit) {
+    var confirmCancel by rememberSaveable { mutableStateOf(false) }
+    androidx.activity.compose.BackHandler { confirmCancel = true }
+    Screen("Thi đấu", { confirmCancel = true }) {
+        val t = state.data
+        Spacer(Modifier.height(40.dp))
+        Box(Modifier.fillMaxWidth().height(230.dp), contentAlignment = Alignment.Center) {
+            repeat(3) { i -> Box(Modifier.size((140 + i * 35).dp).border(1.dp, Line, CircleShape)) }
+            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly, verticalAlignment = Alignment.CenterVertically) {
+                Column(horizontalAlignment = Alignment.CenterHorizontally) { MascotFace(false, Modifier.size(85.dp)); Small("Bạn") }
+                Text("VS", color = Purple, fontWeight = FontWeight.ExtraBold)
+                Column(horizontalAlignment = Alignment.CenterHorizontally) { MascotFace(true, Modifier.size(85.dp)); Small(if (t?.status == "matched") t.opponentName else "Đối thủ") }
             }
-            HorizontalDivider(color = Line)
+        }
+        Text(when (t?.status) { "matched" -> "Đã tìm thấy đối thủ"; "cancelled" -> "Đã hủy tìm trận";
+            "expired" -> "Yêu cầu đã hết hạn"; "failed" -> "Chưa tìm được đối thủ"; else -> "Đang tìm đối thủ..." }, Modifier.fillMaxWidth(), style = MaterialTheme.typography.headlineMedium, textAlign = TextAlign.Center)
+        Text("Sẵn sàng cho một thử thách mới nào!", Modifier.fillMaxWidth(), color = Muted, textAlign = TextAlign.Center)
+        t?.roomCode?.let { Panel(color = Mint) { Text("Mã phòng: $it", style = MaterialTheme.typography.headlineMedium) } }
+        if (t?.status == "matched") {
+            Text(t.opponentName)
+            Primary("Vào trận đấu", enabled = !busy, onClick = start)
+        }
+        if (busy || state.loading || t?.status in listOf("searching", "waiting")) LinearProgressIndicator(Modifier.fillMaxWidth())
+        error?.let { ErrorPanel(it, retry) }
+        if (t?.status in listOf("cancelled", "failed", "expired")) Secondary("Về sảnh", onClick = back)
+        else Secondary("Hủy tìm trận") { if (!busy) confirmCancel = true }
+        Spacer(Modifier.height(40.dp))
+        Panel(color = Blue) { Text("♧  Mẹo nhỏ: Tập trung đọc kỹ câu hỏi!", fontSize = 12.sp, color = Color(0xFF7390AA)) }
+        if (demo) Small("Trận đấu và đối thủ ở chế độ này được mô phỏng trên thiết bị.")
+    }
+    if (confirmCancel) AlertDialog(onDismissRequest = { confirmCancel = false }, title = { Text("Hủy yêu cầu tìm trận?") },
+        text = { Text("Nếu trận đã bắt đầu, máy chủ sẽ xử lý theo trạng thái hiện tại của trận.") },
+        confirmButton = { TextButton({ confirmCancel = false; cancel() }, enabled = !busy) { Text("Hủy tìm trận") } },
+        dismissButton = { TextButton({ confirmCancel = false }) { Text("Tiếp tục chờ") } })
+}
+
+@Composable fun HistoryScreen(state: com.englishbattle.app.data.LoadState<com.englishbattle.app.data.Dashboard>, back: () -> Unit,
+    retry: () -> Unit, result: (String) -> Unit, learning: Boolean = false) {
+    val avatars = listOf(R.drawable.figma_13, R.drawable.figma_14, R.drawable.figma_15, R.drawable.figma_16)
+    Screen(if (learning) "Lịch sử học tập" else "Lịch sử thi đấu", back) {
+        DataContent(state, retry) { d ->
+            val history = d.history.filter { (it.mode == com.englishbattle.app.data.QuizMode.BATTLE) != learning }
+            if (history.isEmpty()) EmptyPanel("Chưa có hoạt động trong mục này.")
+            history.forEachIndexed { i, r ->
+                val color = when (r.outcome) { "win", "completed" -> Green; "draw" -> Purple; else -> Color(0xFFD07483) }
+                val title = if (learning) r.mode.title else when (r.outcome) { "win" -> "Thắng"; "draw" -> "Hòa"; else -> "Thua" }
+                Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).clickable { result(r.attemptId) }.padding(vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(14.dp)) {
+                    Art(avatars[i % avatars.size], Modifier.size(50.dp).clip(CircleShape))
+                    Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
+                        Text(title, fontWeight = FontWeight.ExtraBold, color = color, fontSize = 20.sp)
+                        Small(dateLabel(r.completedAt))
+                    }
+                    Column(horizontalAlignment = Alignment.End) {
+                        Text(if (learning) "${r.correct}/${r.total}" else "${r.correct} - ${r.opponentCorrect}", fontWeight = FontWeight.Bold)
+                        Small(if (learning) "${signed(r.coins)} xu" else signed(r.ratingDelta), color = color)
+                    }
+                }
+                HorizontalDivider(color = Line)
+            }
         }
     }
 }

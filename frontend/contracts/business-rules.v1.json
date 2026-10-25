@@ -1,0 +1,41 @@
+{
+  "version": "2026-10-25-v1",
+  "timeZone": "Asia/Ho_Chi_Minh",
+  "phaseOne": {
+    "implementedAuthentication": "firebase_email_password",
+    "learningModes": ["PRACTICE", "TEST", "DAILY"],
+    "liveBattleKinds": ["quick"],
+    "deferredBattleKinds": ["daily", "create", "join"],
+    "keepDeferredScreens": true,
+    "adminPages": ["dashboard", "users", "content", "battles", "analytics"]
+  },
+  "confirmed": {
+    "leaderboardMetric": "current_cumulative_rating",
+    "leaderboardParticipants": "all_users",
+    "weekMonthUseSameRanking": true,
+    "leaderboardRatingReset": false,
+    "bothDisconnectedAfterGraceOutcome": "draw",
+    "bothDisconnectedRatingDelta": 0,
+    "bothDisconnectedCoins": 0,
+    "dailyChallengeExpiresAtNextMidnight": true,
+    "dailyChallengeExpiredCoins": 0,
+    "dailyChallengeExpiredWireStatus": "abandoned",
+    "dailyChallengeExpiredWireOutcome": "abandoned",
+    "dailyChallengeConsumeAttemptOn": "successful_start",
+    "dailyChallengeMaxAttemptsPerUserPerDay": 1,
+    "questionTimeLimitSeconds": 30,
+    "reconnectGraceSeconds": 30,
+    "questionCounts": { "PRACTICE": 10, "TEST": 20, "DAILY": 5, "BATTLE": 10 },
+    "completionCoins": { "PRACTICE": 1, "TEST": 2, "DAILY": 2 },
+    "battleWinCoins": 5,
+    "battleWinRating": 5,
+    "battleLossRating": -2,
+    "ratingFloor": 0
+  },
+  "implementationDefaultsToDocument": {
+    "leaderboardTieBreak": ["rating_desc", "uid_asc"],
+    "firstFinalResultIsImmutable": true,
+    "dailyDeadline": "min(questionDeadline, nextMidnight)",
+    "dailyExpiredAttemptDoesNotConsumeNewDaySlot": true
+  }
+}

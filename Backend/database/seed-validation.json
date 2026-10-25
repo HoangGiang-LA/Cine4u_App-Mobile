@@ -1,0 +1,29 @@
+{
+  "status": "PASS",
+  "questions": 250,
+  "topics": 25,
+  "skills": 4,
+  "templates": 28,
+  "achievements": 31,
+  "ttsAssets": 30,
+  "runtimeReferenceRoots": 57,
+  "validatedScalarValues": 13613,
+  "answerPositions": {
+    "opt_1": 63,
+    "opt_4": 63,
+    "opt_3": 62,
+    "opt_2": 62
+  },
+  "checks": [
+    "Firebase JSON shape and keys",
+    "all configured game rules",
+    "topic/lesson/answer/asset references",
+    "sufficient questions for every template",
+    "unique question content",
+    "no fake accounts or live activity",
+    "all planned schema roots covered by seed or reference"
+  ],
+  "limitations": [
+    "Static validation only; no Firebase import, Security Rules evaluation or backend execution performed."
+  ]
+}

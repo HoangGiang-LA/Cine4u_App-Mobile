@@ -1,0 +1,894 @@
+{
+  "documentType": "REFERENCE_ONLY_DO_NOT_IMPORT",
+  "notes": [
+    "Các record là ví dụ độc lập tại các thời điểm khác nhau, không phải một snapshot database nhất quán để chạy thử.",
+    "Không import file này. AUTH_UID_A/B và REAL_ADMIN_UID phải thay bằng UID thật khi backend tạo record.",
+    "Không có mật khẩu hoặc tài khoản Auth thật. RTDB không tạo tài khoản đăng nhập chỉ bằng thêm users.",
+    "Timestamp/ngày/ID là ví dụ cố định. Backend phải dùng thời gian server và ID thật.",
+    "Không dùng {uid}/{roomId} làm key thật. Các trường optional chưa có giá trị phải được bỏ qua, không cần ghi null.",
+    "Nhánh động xuất hiện khi có record; object rỗng không được RTDB giữ như bảng SQL."
+  ],
+  "records": {
+    "users": {
+      "path": "users/{uid}",
+      "example": {
+        "displayCode": "U000001",
+        "displayName": "Tên người dùng",
+        "avatarKey": "default_01",
+        "createdAt": 1792807200000,
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Sau khi tài khoản Firebase Auth được tạo thành công.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "userPrivate": {
+      "path": "userPrivate/{uid}",
+      "example": {
+        "email": "user@example.com",
+        "emailVerified": false,
+        "authProviders": {
+          "password": true
+        },
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Backend đồng bộ từ Auth; example.com chỉ là địa chỉ minh họa.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "accountAccess": {
+      "path": "accountAccess/{uid}",
+      "example": {
+        "status": "active",
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Khởi tạo tài khoản; backend cập nhật khi khóa/xóa.",
+      "access": "Backend ghi; Rules/API đọc để kiểm tra quyền, không để người học tự sửa."
+    },
+    "adminProfiles": {
+      "path": "adminProfiles/{adminUid}",
+      "example": {
+        "displayName": "Quản trị viên",
+        "roleLabel": "Administrator",
+        "createdAt": 1792807200000
+      },
+      "createdWhen": "Khi cấp quyền quản trị bằng Admin SDK.",
+      "access": "Không tự cấp quyền qua trường roleLabel; phải kiểm tra custom claims do server cấp."
+    },
+    "userSettings": {
+      "path": "userSettings/{uid}",
+      "example": {
+        "notificationsEnabled": true,
+        "soundVolume": 0.7,
+        "language": "vi",
+        "theme": "light",
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Khi khởi tạo hoặc đổi tùy chọn.",
+      "access": "Chủ tài khoản ghi trường trong allowlist; backend kiểm tra kiểu/giới hạn."
+    },
+    "userDevices": {
+      "path": "userDevices/{uid}/{deviceId}",
+      "example": {
+        "fcmToken": "REAL_FCM_TOKEN_FROM_DEVICE",
+        "platform": "android",
+        "appVersion": "1.0.0",
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Khi thiết bị đăng ký push; dùng token thật từ SDK.",
+      "access": "Chỉ chủ tài khoản/backend; không công khai token."
+    },
+    "presence": {
+      "path": "presence/{uid}/{connectionId}",
+      "example": {
+        "connected": true,
+        "connectedAt": 1792807200000,
+        "lastSeenAt": 1792807200000
+      },
+      "createdWhen": "Theo vòng đời kết nối; đăng ký onDisconnect.",
+      "access": "Chủ tài khoản cập nhật kết nối của mình; backend dùng làm tín hiệu, không dùng làm điểm/kết quả."
+    },
+    "userStats": {
+      "path": "userStats/{uid}",
+      "example": {
+        "rating": 0,
+        "matchesPlayed": 0,
+        "wins": 0,
+        "losses": 0,
+        "draws": 0,
+        "currentWinStreak": 0,
+        "bestWinStreak": 0,
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Hồ sơ mới; mọi thay đổi sau đó do backend chốt trận.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "wallets": {
+      "path": "wallets/{uid}",
+      "example": {
+        "coinBalance": 0,
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Ví mới, không tạo lịch sử thưởng giả.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "learningProgress": {
+      "path": "learningProgress/{uid}/{topicId}",
+      "example": {
+        "completedAttempts": 0,
+        "completionTarget": 20,
+        "correctCount": 0,
+        "answeredCount": 0,
+        "bestScore": 0,
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Lần đầu dùng mục luyện tập; khi chưa có node, UI coi số lần hoàn thành bằng 0.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "userSkillStats": {
+      "path": "userSkillStats/{uid}/{categoryId}",
+      "example": {
+        "correctCount": 0,
+        "questionCount": 0,
+        "completedAttempts": 0,
+        "durationMs": 0,
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Backend tổng hợp từ các phiên hợp lệ.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "userActivityDaily": {
+      "path": "userActivityDaily/{uid}/{dateKey}",
+      "example": {
+        "practiceCompleted": 1,
+        "testsCompleted": 0,
+        "dailyChallengesCompleted": 0,
+        "battlesPlayed": 0,
+        "correctCount": 8,
+        "questionCount": 10,
+        "coinsEarned": 1,
+        "durationMs": 180000,
+        "updatedAt": 1792807380000
+      },
+      "createdWhen": "Ví dụ một bài luyện tập đã hoàn thành, không phải giá trị khởi tạo.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "userStreaks": {
+      "path": "userStreaks/{uid}",
+      "example": {
+        "current": 1,
+        "longest": 1,
+        "lastQualifiedDate": "2026-10-24",
+        "qualifiedDates": {
+          "2026-10-24": true
+        }
+      },
+      "createdWhen": "Sau hoạt động đạt điều kiện streak; điều kiện streak còn phải thống nhất.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "practiceAttempts": {
+      "path": "practiceAttempts/{uid}/{attemptId}",
+      "example": {
+        "templateId": "practice_vocabulary_daily_life",
+        "mode": "practice",
+        "categoryId": "vocabulary",
+        "topicId": "vocabulary_daily_life",
+        "status": "in_progress",
+        "questionCount": 10,
+        "questionTimeLimitSeconds": 30,
+        "currentOrdinal": 1,
+        "startedAt": 1792807200000,
+        "correctCount": 0,
+        "answeredCount": 0,
+        "scoringVersion": "v1"
+      },
+      "createdWhen": "Backend bắt đầu một bài ngẫu nhiên; test dùng 20 câu, dailyChallenge dùng 5 câu.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "attemptQuestions": {
+      "path": "attemptQuestions/{uid}/{attemptId}/{ordinal}",
+      "example": {
+        "questionId": "q_vocabulary_daily_life_001",
+        "version": "v1",
+        "ordinal": 1,
+        "prompt": "What does \"neighbor\" mean in Vietnamese?",
+        "options": {
+          "opt_1": {
+            "text": "hàng xóm",
+            "order": 1
+          },
+          "opt_2": {
+            "text": "quần áo cần giặt hoặc việc giặt giũ",
+            "order": 2
+          },
+          "opt_3": {
+            "text": "biên lai",
+            "order": 3
+          },
+          "opt_4": {
+            "text": "mượn",
+            "order": 4
+          }
+        },
+        "openedAt": 1792807200000,
+        "deadlineAt": 1792807230000
+      },
+      "createdWhen": "Backend giao câu cho phiên; snapshot cố định, không chứa đáp án đúng chưa mở.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "attemptAnswers": {
+      "path": "attemptAnswers/{uid}/{attemptId}/{ordinal}",
+      "example": {
+        "questionId": "q_vocabulary_daily_life_001",
+        "version": "v1",
+        "selectedOptionId": "opt_1",
+        "receivedAt": 1792807205000,
+        "isCorrect": true,
+        "timedOut": false,
+        "requestId": "SERVER_VALIDATED_REQUEST_ID"
+      },
+      "createdWhen": "Sau khi server nhận và chốt lựa chọn.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "attemptReviews": {
+      "path": "attemptReviews/{uid}/{attemptId}/{ordinal}",
+      "example": {
+        "questionId": "q_vocabulary_daily_life_001",
+        "version": "v1",
+        "correctOptionId": "opt_1",
+        "explanation": "“neighbor” có nghĩa là “hàng xóm”.",
+        "releasedAt": 1792807205000
+      },
+      "createdWhen": "Chỉ công bố khi chính sách xem đáp án cho phép.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "dailyChallenges": {
+      "path": "dailyChallenges/{dateKey}/{challengeId}",
+      "example": {
+        "templateId": "daily_mixed",
+        "title": "Thử thách hôm nay",
+        "questionCount": 5,
+        "questionTimeLimitSeconds": 30,
+        "selectionMode": "random_without_replacement",
+        "completionCoins": 2,
+        "maxAttemptsPerUserPerDay": 1,
+        "startsAt": 1792774800000,
+        "endsAt": 1792861200000,
+        "status": "published"
+      },
+      "createdWhen": "Backend tạo lịch theo ngày thực tế; không nhập cố định ngày minh họa này vào seed.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "userDailyChallenges": {
+      "path": "userDailyChallenges/{uid}/{dateKey}",
+      "example": {
+        "challengeId": "daily",
+        "attemptId": "daily_attempt_001",
+        "status": "in_progress",
+        "startedAt": 1792807200000,
+        "completedQuestionCount": 0
+      },
+      "createdWhen": "Transaction chiếm đúng một lượt theo UID/ngày trước khi trả phiên; retry dùng cùng attemptId.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "dailyBattleEvents": {
+      "path": "dailyBattleEvents/{eventId}",
+      "example": {
+        "title": "Thi đấu theo ngày",
+        "dateKey": "2026-10-24",
+        "templateId": "battle_mixed",
+        "status": "draft",
+        "questionCount": 10,
+        "questionTimeLimitSeconds": 30
+      },
+      "createdWhen": "Khi có cấu hình lịch sự kiện; draft cho đến khi chốt lịch/phạm vi câu.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "dailyBattleEntries": {
+      "path": "dailyBattleEntries/{eventId}/{uid}",
+      "example": {
+        "battleIds": {
+          "battle_001": true
+        },
+        "joinedAt": 1792807200000
+      },
+      "createdWhen": "Khi người chơi tham gia sự kiện thi đấu theo ngày, khác thử thách học.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "matchmakingQueue": {
+      "path": "matchmakingQueue/{poolId}/{uid}",
+      "example": {
+        "mode": "quick",
+        "rating": 0,
+        "joinedAt": 1792807200000,
+        "expiresAt": 1792807320000,
+        "status": "waiting"
+      },
+      "createdWhen": "Khi tìm trận; 120 giây ở đây chỉ là ví dụ thời hạn hàng chờ, chưa phải luật đã chốt.",
+      "access": "Backend ghi/xử lý, người chơi chỉ được xem trạng thái của mình."
+    },
+    "activeBattles": {
+      "path": "activeBattles/{uid}",
+      "example": {
+        "roomId": "battle_001",
+        "status": "playing",
+        "assignedAt": 1792807200000
+      },
+      "createdWhen": "Server đặt reservation trước khi ghép để một UID không vào hai trận.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "privateRoomCodes": {
+      "path": "privateRoomCodes/{code}",
+      "example": {
+        "roomId": "battle_001",
+        "expiresAt": 1792807800000
+      },
+      "createdWhen": "Backend tạo mã duy nhất; 10 phút là thời hạn minh họa cần cấu hình.",
+      "access": "Tra mã qua backend; không cấp đọc danh sách tất cả mã phòng."
+    },
+    "battleRooms": {
+      "path": "battleRooms/{roomId}",
+      "example": {
+        "displayCode": "B000001",
+        "mode": "quick",
+        "templateId": "battle_mixed",
+        "categoryId": "mixed",
+        "status": "playing",
+        "participants": {
+          "AUTH_UID_A": {
+            "displayName": "Người A"
+          },
+          "AUTH_UID_B": {
+            "displayName": "Người B"
+          }
+        },
+        "questionCount": 10,
+        "questionTimeLimitSeconds": 30,
+        "currentRound": 1,
+        "correctCounts": {
+          "AUTH_UID_A": 0,
+          "AUTH_UID_B": 0
+        },
+        "createdAt": 1792807190000,
+        "startedAt": 1792807200000,
+        "rulesVersion": "v1"
+      },
+      "createdWhen": "Server xác nhận hai thành viên và bắt đầu trận.",
+      "access": "Chỉ hai thành viên và admin phù hợp đọc; backend ghi."
+    },
+    "battleQuestionSets": {
+      "path": "battleQuestionSets/{roomId}",
+      "example": {
+        "10": {
+          "questionId": "q_vocabulary_daily_life_010",
+          "version": "v1",
+          "ordinal": 10,
+          "optionOrder": {
+            "opt_1": 1,
+            "opt_2": 2,
+            "opt_3": 3,
+            "opt_4": 4
+          }
+        },
+        "01": {
+          "questionId": "q_vocabulary_daily_life_001",
+          "version": "v1",
+          "ordinal": 1,
+          "optionOrder": {
+            "opt_1": 1,
+            "opt_2": 2,
+            "opt_3": 3,
+            "opt_4": 4
+          }
+        },
+        "02": {
+          "questionId": "q_vocabulary_daily_life_002",
+          "version": "v1",
+          "ordinal": 2,
+          "optionOrder": {
+            "opt_1": 1,
+            "opt_2": 2,
+            "opt_3": 3,
+            "opt_4": 4
+          }
+        },
+        "03": {
+          "questionId": "q_vocabulary_daily_life_003",
+          "version": "v1",
+          "ordinal": 3,
+          "optionOrder": {
+            "opt_1": 1,
+            "opt_2": 2,
+            "opt_3": 3,
+            "opt_4": 4
+          }
+        },
+        "04": {
+          "questionId": "q_vocabulary_daily_life_004",
+          "version": "v1",
+          "ordinal": 4,
+          "optionOrder": {
+            "opt_1": 1,
+            "opt_2": 2,
+            "opt_3": 3,
+            "opt_4": 4
+          }
+        },
+        "05": {
+          "questionId": "q_vocabulary_daily_life_005",
+          "version": "v1",
+          "ordinal": 5,
+          "optionOrder": {
+            "opt_1": 1,
+            "opt_2": 2,
+            "opt_3": 3,
+            "opt_4": 4
+          }
+        },
+        "06": {
+          "questionId": "q_vocabulary_daily_life_006",
+          "version": "v1",
+          "ordinal": 6,
+          "optionOrder": {
+            "opt_1": 1,
+            "opt_2": 2,
+            "opt_3": 3,
+            "opt_4": 4
+          }
+        },
+        "07": {
+          "questionId": "q_vocabulary_daily_life_007",
+          "version": "v1",
+          "ordinal": 7,
+          "optionOrder": {
+            "opt_1": 1,
+            "opt_2": 2,
+            "opt_3": 3,
+            "opt_4": 4
+          }
+        },
+        "08": {
+          "questionId": "q_vocabulary_daily_life_008",
+          "version": "v1",
+          "ordinal": 8,
+          "optionOrder": {
+            "opt_1": 1,
+            "opt_2": 2,
+            "opt_3": 3,
+            "opt_4": 4
+          }
+        },
+        "09": {
+          "questionId": "q_vocabulary_daily_life_009",
+          "version": "v1",
+          "ordinal": 9,
+          "optionOrder": {
+            "opt_1": 1,
+            "opt_2": 2,
+            "opt_3": 3,
+            "opt_4": 4
+          }
+        }
+      },
+      "createdWhen": "Ví dụ một bộ có đủ 10 câu; khi chạy thật backend bốc ngẫu nhiên một lần và dùng chung.",
+      "access": "Chỉ backend/admin đọc cả bộ; người chơi nhận battlePayloads theo lượt."
+    },
+    "battleRounds": {
+      "path": "battleRounds/{roomId}/{roundId}",
+      "example": {
+        "ordinal": 1,
+        "openedAt": 1792807200000,
+        "deadlineAt": 1792807230000,
+        "status": "open",
+        "resolvedPlayers": {
+          "AUTH_UID_A": false,
+          "AUTH_UID_B": false
+        }
+      },
+      "createdWhen": "Khi mở lượt; không gia hạn deadline do tải lại.",
+      "access": "Thành viên đọc phần được phép; backend ghi."
+    },
+    "battleConnections": {
+      "path": "battleConnections/{roomId}/{uid}",
+      "example": {
+        "connectionId": "connection_001",
+        "status": "disconnected",
+        "disconnectedAt": 1792807201000,
+        "reconnectDeadlineAt": 1792807231000
+      },
+      "createdWhen": "Khi server phát hiện phiên thi đấu bị ngắt; chờ đúng 30 giây.",
+      "access": "Backend kiểm soát hạn và kết quả, không nhận hạn do client tự khai."
+    },
+    "battlePayloads": {
+      "path": "battlePayloads/{roomId}/{uid}",
+      "example": {
+        "roundId": "01",
+        "questionId": "q_vocabulary_daily_life_001",
+        "version": "v1",
+        "prompt": "What does \"neighbor\" mean in Vietnamese?",
+        "options": {
+          "opt_1": {
+            "text": "hàng xóm",
+            "order": 1
+          },
+          "opt_2": {
+            "text": "quần áo cần giặt hoặc việc giặt giũ",
+            "order": 2
+          },
+          "opt_3": {
+            "text": "biên lai",
+            "order": 3
+          },
+          "opt_4": {
+            "text": "mượn",
+            "order": 4
+          }
+        },
+        "openedAt": 1792807200000,
+        "deadlineAt": 1792807230000
+      },
+      "createdWhen": "Giao cùng câu/phiên bản cho hai người.",
+      "access": "Mỗi người chỉ đọc payload của mình; không có correctOptionId/explanation."
+    },
+    "battleSubmissions": {
+      "path": "battleSubmissions/{roomId}/{roundId}/{uid}",
+      "example": {
+        "selectedOptionId": "opt_1",
+        "receivedAt": 1792807207000,
+        "requestId": "SERVER_VALIDATED_REQUEST_ID",
+        "isCorrect": true
+      },
+      "createdWhen": "Chấm sau khi kiểm tra thành viên, vòng, thời gian và chưa nộp.",
+      "access": "Không cho đối thủ đọc trước khi lượt được chốt."
+    },
+    "battleResults": {
+      "path": "battleResults/{roomId}",
+      "example": {
+        "status": "settled",
+        "winnerUid": "AUTH_UID_A",
+        "endReason": "all_questions_resolved",
+        "correctCounts": {
+          "AUTH_UID_A": 8,
+          "AUTH_UID_B": 6
+        },
+        "players": {
+          "AUTH_UID_A": {
+            "outcome": "win",
+            "ratingBefore": 0,
+            "ratingAfter": 5,
+            "ratingDelta": 5,
+            "coinsAwarded": 5
+          },
+          "AUTH_UID_B": {
+            "outcome": "loss",
+            "ratingBefore": 0,
+            "ratingAfter": 0,
+            "ratingDelta": 0,
+            "coinsAwarded": 0
+          }
+        },
+        "finishedAt": 1792807500000,
+        "settlementVersion": 1
+      },
+      "createdWhen": "Ví dụ trận A thắng từ rating 0; hòa bỏ winnerUid, cả hai delta/xu bằng 0.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "battleHistory": {
+      "path": "battleHistory/{uid}/{roomId}",
+      "example": {
+        "opponentUid": "AUTH_UID_B",
+        "opponentDisplayName": "Người B",
+        "correctCount": 8,
+        "opponentCorrectCount": 6,
+        "outcome": "win",
+        "ratingDelta": 5,
+        "coinsAwarded": 5,
+        "finishedAt": 1792807500000
+      },
+      "createdWhen": "Fan-out bản rút gọn sau khi có kết quả chính thức.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "battleReviews": {
+      "path": "battleReviews/{roomId}/{uid}/{roundId}",
+      "example": {
+        "questionId": "q_vocabulary_daily_life_001",
+        "version": "v1",
+        "correctOptionId": "opt_1",
+        "explanation": "“neighbor” có nghĩa là “hàng xóm”.",
+        "releasedAt": 1792807500000
+      },
+      "createdWhen": "Sau thời điểm cho phép xem lại.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "battleLogs": {
+      "path": "battleLogs/{roomId}/{eventId}",
+      "example": {
+        "type": "answer_accepted",
+        "actorUid": "AUTH_UID_A",
+        "roundId": "01",
+        "serverAt": 1792807207000,
+        "requestId": "SERVER_VALIDATED_REQUEST_ID"
+      },
+      "createdWhen": "Mỗi chuyển trạng thái/sự kiện có ý nghĩa.",
+      "access": "Backend append; admin có quyền xem log; không chứa token/mật khẩu."
+    },
+    "ratingLedger": {
+      "path": "ratingLedger/{uid}/{roomId}",
+      "example": {
+        "outcome": "win",
+        "ratingBefore": 0,
+        "ratingAfter": 5,
+        "ratingDelta": 5,
+        "settledAt": 1792807500000
+      },
+      "createdWhen": "Chỉ một entry mỗi UID/trận; loss delta có thể -1 hoặc 0 vì sàn rating.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "rewardGrants": {
+      "path": "rewardGrants/{uid}/{grantId}",
+      "example": {
+        "sourceType": "practice_completion",
+        "sourceId": "attempt_001",
+        "coinDelta": 1,
+        "status": "applied",
+        "appliedAt": 1792807380000
+      },
+      "createdWhen": "Khóa deterministic như practice_attempt_001, không tạo push ID mới mỗi retry.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "coinLedger": {
+      "path": "coinLedger/{uid}/{entryId}",
+      "example": {
+        "sourceType": "practice_completion",
+        "sourceId": "attempt_001",
+        "grantId": "practice_attempt_001",
+        "delta": 1,
+        "balanceBefore": 0,
+        "balanceAfter": 1,
+        "createdAt": 1792807380000
+      },
+      "createdWhen": "Ghi cùng giao dịch/miền nhất quán với số dư và reward grant.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "userAchievements": {
+      "path": "userAchievements/{uid}/{achievementId}",
+      "example": {
+        "progress": 20,
+        "threshold": 20,
+        "status": "unlocked",
+        "unlockedAt": 1792807200000,
+        "ruleVersion": "v1"
+      },
+      "createdWhen": "Khi mục luyện tập tương ứng đạt 20 lần; không cộng thưởng huy hiệu chưa được yêu cầu.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "leaderboardPeriods": {
+      "path": "leaderboardPeriods/{periodId}",
+      "example": {
+        "periodType": "current",
+        "timeZone": "Asia/Ho_Chi_Minh",
+        "metric": "current_cumulative_rating",
+        "participants": "all_users",
+        "weekMonthUseSameRanking": true,
+        "status": "draft"
+      },
+      "createdWhen": "Snapshot bảng rating hiện tại; cả hai tab Tuần/Tháng dùng cùng nguồn. Ví dụ này không kích hoạt hoặc tạo người chơi trong seed.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "leaderboards": {
+      "path": "leaderboards/{periodId}/{uid}",
+      "example": {
+        "displayName": "Người A",
+        "score": 5,
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Score là rating tích lũy hiện tại, không phải rating kiếm được trong kỳ; mọi người chơi dùng cùng bảng.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "leaderboardRanks": {
+      "path": "leaderboardRanks/{periodId}/{uid}",
+      "example": {
+        "rank": 1,
+        "participantCount": 2,
+        "calculatedAt": 1792807200000
+      },
+      "createdWhen": "Backend tính hạng, không chỉ dựa trên query top 100.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "notifications": {
+      "path": "notifications/{uid}/{notificationId}",
+      "example": {
+        "type": "practice_achievement",
+        "title": "Hoàn thành thành tích luyện tập",
+        "body": "Bạn đã hoàn thành mục này 20 lần.",
+        "createdAt": 1792807200000,
+        "targetType": "achievement",
+        "targetId": "practice_20_vocabulary_daily_life",
+        "sourceEventId": "achievement_event_001"
+      },
+      "createdWhen": "Backend tạo một lần; thêm readAt khi người dùng đọc.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "notificationCounts": {
+      "path": "notificationCounts/{uid}",
+      "example": {
+        "unreadCount": 1,
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Bản đếm dẫn xuất, cần đồng bộ với chính sách readAt/readThroughAt.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "adminNotifications": {
+      "path": "adminNotifications/{adminUid}/{notificationId}",
+      "example": {
+        "type": "operation_failed",
+        "title": "Cần kiểm tra tác vụ",
+        "operationId": "operation_001",
+        "createdAt": 1792807200000
+      },
+      "createdWhen": "Thông báo vận hành thật, không seed cảnh báo giả.",
+      "access": "Admin nhận thông báo đọc; backend ghi."
+    },
+    "activityEvents": {
+      "path": "activityEvents/{dateKey}/{eventId}",
+      "example": {
+        "type": "practice_completed",
+        "actorUid": "AUTH_UID_A",
+        "sourceId": "attempt_001",
+        "categoryId": "vocabulary",
+        "topicId": "vocabulary_daily_life",
+        "correctCount": 8,
+        "questionCount": 10,
+        "coinsAwarded": 1,
+        "occurredAt": 1792807200000
+      },
+      "createdWhen": "Backend tạo sự kiện có mã ổn định sau hoàn thành.",
+      "access": "Backend ghi; chỉ admin/phân hệ thống kê đọc."
+    },
+    "activeUserSets": {
+      "path": "activeUserSets/{periodType}/{periodKey}/{uid}",
+      "example": {
+        "firstActivityAt": 1792807200000,
+        "lastActivityAt": 1792807200000
+      },
+      "createdWhen": "Lưu UID duy nhất theo ngày/tuần/tháng để không cộng trùng.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "analytics": {
+      "path": "analytics/daily/{dateKey}",
+      "example": {
+        "newUsers": 0,
+        "activeUsers": 1,
+        "practiceCompleted": 1,
+        "testsCompleted": 0,
+        "dailyChallengesCompleted": 0,
+        "battlesStarted": 0,
+        "battlesCompleted": 0,
+        "correctCount": 8,
+        "questionCount": 10,
+        "coinsAwarded": 1,
+        "updatedAt": 1792807200000
+      },
+      "createdWhen": "Tổng hợp thật từ sự kiện; weekly/monthly khử trùng active UID.",
+      "access": "Admin đọc; backend ghi."
+    },
+    "adminViews": {
+      "path": "adminViews/users/{uid}",
+      "example": {
+        "displayCode": "U000001",
+        "displayName": "Tên người dùng",
+        "email": "user@example.com",
+        "nameNormalized": "ten nguoi dung",
+        "emailNormalized": "user@example.com",
+        "status": "active",
+        "createdAt": 1792807200000
+      },
+      "createdWhen": "Bản rút gọn từ dữ liệu nguồn. Các nhánh battles/recentActivities cũng tạo khi có sự kiện.",
+      "access": "Chỉ admin đọc; backend ghi."
+    },
+    "lookupIndexes": {
+      "path": "lookupIndexes/usersByDisplayCode/{displayCode}",
+      "example": "AUTH_UID_A",
+      "createdWhen": "Tạo lookup thật khi cấp mã user; không dùng # trong key.",
+      "access": "Email/name index chỉ admin đọc; backend ghi."
+    },
+    "adminAuditLogs": {
+      "path": "adminAuditLogs/{dateKey}/{eventId}",
+      "example": {
+        "actorUid": "REAL_ADMIN_UID",
+        "action": "question.publish",
+        "targetType": "question",
+        "targetId": "q_vocabulary_daily_life_001",
+        "serverAt": 1792807200000,
+        "result": "success",
+        "requestId": "SERVER_VALIDATED_REQUEST_ID"
+      },
+      "createdWhen": "Khi admin thực hiện một thay đổi được backend kiểm tra.",
+      "access": "Backend append; admin theo quyền đọc."
+    },
+    "reportJobs": {
+      "path": "reportJobs/{jobId}",
+      "example": {
+        "requestedBy": "REAL_ADMIN_UID",
+        "reportType": "learning_activity",
+        "filters": {
+          "fromDate": "2026-10-01",
+          "toDate": "2026-10-24"
+        },
+        "status": "queued",
+        "createdAt": 1792807200000,
+        "snapshotAt": 1792807200000
+      },
+      "createdWhen": "Khi admin yêu cầu báo cáo; chỉ thêm storagePath khi file tạo xong.",
+      "access": "Admin được cấp quyền tải file, không dùng public URL chứa dữ liệu riêng."
+    },
+    "systemStatus": {
+      "path": "systemStatus/{serviceId}",
+      "example": {
+        "status": "operational",
+        "checkedAt": 1792807200000
+      },
+      "createdWhen": "Chỉ ghi sau khi kiểm tra dịch vụ thật; không seed trạng thái hoạt động giả.",
+      "access": "Backend monitor ghi; admin đọc."
+    },
+    "operations": {
+      "path": "operations/{operationId}",
+      "example": {
+        "type": "battle_settlement",
+        "sourceId": "battle_001",
+        "requestId": "SERVER_VALIDATED_REQUEST_ID",
+        "status": "pending",
+        "attempts": 0,
+        "createdAt": 1792807200000
+      },
+      "createdWhen": "Điều phối thao tác có retry; cần transaction/lease và phục hồi.",
+      "access": "Backend only."
+    },
+    "outbox": {
+      "path": "outbox/{eventId}",
+      "example": {
+        "type": "practice_completed",
+        "sourceId": "attempt_001",
+        "uid": "AUTH_UID_A",
+        "status": "pending",
+        "attempts": 0,
+        "createdAt": 1792807200000
+      },
+      "createdWhen": "Sự kiện cần cập nhật view/thống kê/thông báo theo cách chống trùng.",
+      "access": "Backend only."
+    },
+    "battleInvites": {
+      "path": "battleInvites/{uid}/{inviteId}",
+      "example": {
+        "fromUid": "AUTH_UID_B",
+        "roomId": "battle_001",
+        "status": "pending",
+        "createdAt": 1792807200000,
+        "expiresAt": 1792807800000
+      },
+      "createdWhen": "Tùy chọn: chỉ tạo nếu làm luồng lời mời trong app.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "moderationReports": {
+      "path": "moderationReports/{reportId}",
+      "example": {
+        "reporterUid": "AUTH_UID_A",
+        "roomId": "battle_001",
+        "reason": "Nội dung do người dùng gửi",
+        "status": "open",
+        "createdAt": 1792807200000
+      },
+      "createdWhen": "Tùy chọn: chỉ tạo nếu xác nhận luồng tố cáo.",
+      "access": "Backend ghi; chủ tài khoản đọc dữ liệu của mình."
+    },
+    "moderationActions": {
+      "path": "moderationActions/{actionId}",
+      "example": {
+        "reportId": "report_001",
+        "actorUid": "REAL_ADMIN_UID",
+        "action": "reviewed",
+        "createdAt": 1792807200000
+      },
+      "createdWhen": "Tùy chọn: chỉ tạo nếu xác nhận luồng xử lý tố cáo.",
+      "access": "Backend ghi sau kiểm tra quyền admin."
+    }
+  }
+}
