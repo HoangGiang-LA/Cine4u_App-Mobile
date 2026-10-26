@@ -1,6 +1,21 @@
 {
   "rules": {
     ".read": false,
-    ".write": false
+    ".write": false,
+    "practiceAttempts": {
+      "$uid": {
+        ".indexOn": ["finishedAt"]
+      }
+    },
+    "notifications": {
+      "$uid": {
+        ".indexOn": ["createdAt"]
+      }
+    },
+    "coinLedger": {
+      "$uid": {
+        ".indexOn": ["createdAt"]
+      }
+    }
   }
 }
