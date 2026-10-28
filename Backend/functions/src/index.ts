@@ -33,3 +33,5 @@ setGlobalOptions({maxInstances: 10});
 
 export {ensureUserProfile} from "./be1/auth/ensureUserProfile";
 export {getUserDashboard} from "./be1/user/getUserDashboard";
+export {startAttempt} from "./be1/practice/startAttempt";
+export {resumeAttempt} from "./be1/practice/resumeAttempt";
