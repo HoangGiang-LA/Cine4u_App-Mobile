@@ -35,3 +35,5 @@ export {ensureUserProfile} from "./be1/auth/ensureUserProfile";
 export {getUserDashboard} from "./be1/user/getUserDashboard";
 export {startAttempt} from "./be1/practice/startAttempt";
 export {resumeAttempt} from "./be1/practice/resumeAttempt";
+export {submitAttemptAnswer} from "./be1/practice/submitAttemptAnswer";
+export {advanceAttempt} from "./be1/practice/advanceAttempt";
