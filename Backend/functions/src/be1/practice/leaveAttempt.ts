@@ -1,7 +1,7 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {finalizeAttemptLogic} from "./finalizeAttempt";
-import {buildAttemptResponse} from "./attemptHelper";
+import {readAttemptResponse as buildAttemptResponse} from "./finalizeAttempt";
 
 const REQUEST_ID_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
 
