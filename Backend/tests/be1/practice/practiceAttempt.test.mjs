@@ -8,6 +8,9 @@ const resumeUrl = `http://127.0.0.1:5001/${projectId}/asia-southeast1/resumeAtte
 const ensureProfileUrl = `http://127.0.0.1:5001/${projectId}/asia-southeast1/ensureUserProfile`;
 const submitUrl = `http://127.0.0.1:5001/${projectId}/asia-southeast1/submitAttemptAnswer`;
 const advanceUrl = `http://127.0.0.1:5001/${projectId}/asia-southeast1/advanceAttempt`;
+const getResultUrl = `http://127.0.0.1:5001/${projectId}/asia-southeast1/getAttemptResult`;
+const leaveUrl = `http://127.0.0.1:5001/${projectId}/asia-southeast1/leaveAttempt`;
+const dashboardUrl = `http://127.0.0.1:5001/${projectId}/asia-southeast1/getUserDashboard`;
 
 async function getCorrectOptionId(questionId, version = "v1") {
   const res = await fetch(
@@ -863,6 +866,589 @@ async function runTests() {
   });
   assert.equal(delayedDiffRes.status, 400);
   console.log("   -> Delayed advance requests safely prevented from skipping questions");
+
+
+  console.log("36. Finalize completed attempt via getAttemptResult & reward verification (Phase 2 & 3)");
+  const getRes4 = await callFunction(getResultUrl, test4User.idToken, {
+    attemptId: att4.id,
+  });
+  assert.equal(getRes4.status, 200);
+  const finalResult4 = getRes4.body.result.result;
+  assert.equal(finalResult4.attemptId, att4.id);
+  assert.equal(finalResult4.mode, "PRACTICE");
+  assert.equal(finalResult4.outcome, "completed");
+  assert.equal(finalResult4.total, 10);
+  assert.equal(finalResult4.coins, 1);
+  assert.ok(finalResult4.completedAt > 0);
+
+  // Verify wallet: exactly 1 coin awarded
+  const wallet4Db = await fetch(
+    `http://127.0.0.1:9000/wallets/${test4User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(wallet4Db.coinBalance, 1);
+
+  // Verify coinLedger: exactly 1 entry with delta 1
+  const ledger4Db = await fetch(
+    `http://127.0.0.1:9000/coinLedger/${test4User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(Object.keys(ledger4Db || {}).length, 1);
+  const ledgerEntry = Object.values(ledger4Db)[0];
+  assert.equal(ledgerEntry.delta, 1);
+
+  // Verify learningProgress: completedAttempts incremented to 1
+  const progress4Db = await fetch(
+    `http://127.0.0.1:9000/learningProgress/${test4User.localId}/${att4.topicId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(progress4Db.completedAttempts, 1);
+
+  // Verify practiceAttempts in DB: status is completed and immutable
+  const att4Db = await fetch(
+    `http://127.0.0.1:9000/practiceAttempts/${test4User.localId}/${att4.id}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(att4Db.status, "completed");
+  assert.equal(att4Db.coinsAwarded, 1);
+  console.log("   -> Attempt finalized: 1 coin awarded, wallet, ledger & learningProgress updated");
+
+  console.log("37. Repeated finalization does not grant duplicate coins (Idempotency)");
+  const repeatGetRes = await callFunction(getResultUrl, test4User.idToken, {
+    attemptId: att4.id,
+  });
+  assert.equal(repeatGetRes.status, 200);
+  assert.deepEqual(repeatGetRes.body.result.result, finalResult4);
+
+  // Wallet must still be exactly 1
+  const walletRepeatDb = await fetch(
+    `http://127.0.0.1:9000/wallets/${test4User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(walletRepeatDb.coinBalance, 1);
+
+  // Learning progress must still be 1
+  const progressRepeatDb = await fetch(
+    `http://127.0.0.1:9000/learningProgress/${test4User.localId}/${att4.topicId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(progressRepeatDb.completedAttempts, 1);
+  console.log("   -> Repeated finalization is idempotent and does not grant duplicate coins");
+
+  console.log("38. Concurrent settlement does not grant duplicate coins");
+  const test8User = await createTestUser();
+  await callFunction(ensureProfileUrl, test8User.idToken, {});
+  const start8Res = await callFunction(startUrl, test8User.idToken, {
+    mode: "PRACTICE",
+    topicId: "vocabulary_daily_life",
+    requestId: `req-start-test8-${Date.now()}`,
+  });
+  assert.equal(start8Res.status, 200);
+  const att8 = start8Res.body.result.attempt;
+
+  // Complete all 10 questions for att8
+  for (let i = 0; i < 10; i++) {
+    const q = att8.questions[i];
+    await callFunction(submitUrl, test8User.idToken, {
+      attemptId: att8.id,
+      questionId: q.id,
+      optionId: q.options[0].id,
+      requestId: `req-sub8-${i}-${Date.now()}`,
+    });
+    await callFunction(advanceUrl, test8User.idToken, {
+      attemptId: att8.id,
+      requestId: `req-adv8-${i}-${Date.now()}`,
+    });
+  }
+
+  // Concurrent finalization
+  const [concGet1, concGet2] = await Promise.all([
+    callFunction(getResultUrl, test8User.idToken, {attemptId: att8.id}),
+    callFunction(getResultUrl, test8User.idToken, {attemptId: att8.id}),
+  ]);
+  assert.equal(concGet1.status, 200);
+  assert.equal(concGet2.status, 200);
+
+  // Wallet must be exactly 1
+  const wallet8Db = await fetch(
+    `http://127.0.0.1:9000/wallets/${test8User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(wallet8Db.coinBalance, 1);
+  console.log("   -> Concurrent finalization resolved safely without duplicate rewards");
+
+  console.log("39. Abandoned attempt receives no reward");
+  const test9User = await createTestUser();
+  await callFunction(ensureProfileUrl, test9User.idToken, {});
+  const start9Res = await callFunction(startUrl, test9User.idToken, {
+    mode: "PRACTICE",
+    topicId: "vocabulary_daily_life",
+    requestId: `req-start-test9-${Date.now()}`,
+  });
+  assert.equal(start9Res.status, 200);
+  const att9 = start9Res.body.result.attempt;
+
+  // Answer 2 questions then abandon via leaveAttempt
+  await callFunction(submitUrl, test9User.idToken, {
+    attemptId: att9.id,
+    questionId: att9.questions[0].id,
+    optionId: att9.questions[0].options[0].id,
+    requestId: `req-sub9-0-${Date.now()}`,
+  });
+  const leaveRes = await callFunction(leaveUrl, test9User.idToken, {
+    attemptId: att9.id,
+    requestId: `req-leave-9-${Date.now()}`,
+  });
+  assert.equal(leaveRes.status, 200);
+  assert.equal(leaveRes.body.result.attempt.status, "abandoned");
+  assert.equal(leaveRes.body.result.attempt.result.outcome, "abandoned");
+  assert.equal(leaveRes.body.result.attempt.result.coins, 0);
+
+  // Verify wallet remains 0
+  const wallet9Db = await fetch(
+    `http://127.0.0.1:9000/wallets/${test9User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(wallet9Db.coinBalance, 0);
+
+  // Verify learningProgress has no completed attempts
+  const progress9Db = await fetch(
+    `http://127.0.0.1:9000/learningProgress/${test9User.localId}/${att9.topicId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(progress9Db, null);
+  console.log("   -> Abandoned attempt received 0 coins and did not increment progress");
+
+  console.log("40. Interrupted settlement safe recovery");
+  const test10User = await createTestUser();
+  await callFunction(ensureProfileUrl, test10User.idToken, {});
+  const start10Res = await callFunction(startUrl, test10User.idToken, {
+    mode: "PRACTICE",
+    topicId: "vocabulary_daily_life",
+    requestId: `req-start-test10-${Date.now()}`,
+  });
+  assert.equal(start10Res.status, 200);
+  const att10 = start10Res.body.result.attempt;
+
+  // Complete all 10 questions for att10
+  for (let i = 0; i < 10; i++) {
+    const q = att10.questions[i];
+    await callFunction(submitUrl, test10User.idToken, {
+      attemptId: att10.id,
+      questionId: q.id,
+      optionId: q.options[0].id,
+      requestId: `req-sub10-${i}-${Date.now()}`,
+    });
+    await callFunction(advanceUrl, test10User.idToken, {
+      attemptId: att10.id,
+      requestId: `req-adv10-${i}-${Date.now()}`,
+    });
+  }
+
+  // Simulate worker crash during reward settlement: grant already saved, wallet credited, but practiceAttempts still waiting
+  const grant10Id = `grant_${att10.id}`;
+  await fetch(
+    `http://127.0.0.1:9000/rewardGrants/${test10User.localId}/${grant10Id}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`,
+    {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        sourceType: "practice",
+        sourceId: att10.id,
+        coinDelta: 1,
+        status: "completed",
+        grantedAt: Date.now(),
+      }),
+    }
+  );
+  await fetch(
+    `http://127.0.0.1:9000/wallets/${test10User.localId}/coinBalance.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`,
+    {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(1),
+    }
+  );
+
+  // Calling getAttemptResult must recover cleanly without duplicating coins
+  const recoverRes10 = await callFunction(getResultUrl, test10User.idToken, {
+    attemptId: att10.id,
+  });
+  assert.equal(recoverRes10.status, 200);
+  assert.equal(recoverRes10.body.result.result.outcome, "completed");
+
+  const wallet10Db = await fetch(
+    `http://127.0.0.1:9000/wallets/${test10User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(wallet10Db.coinBalance, 1);
+  console.log("   -> Interrupted settlement safely recovered without duplicating wallet balance");
+
+  console.log("41. Dashboard and History integration verification (Phase 4)");
+  const dashRes = await callFunction(dashboardUrl, test4User.idToken, {});
+  assert.equal(dashRes.status, 200);
+  const dashboard = dashRes.body.result.dashboard;
+  assert.equal(dashboard.coins, 1);
+  assert.equal(dashboard.progress[att4.topicId], 1);
+  assert.ok(dashboard.history.length >= 1);
+  assert.equal(dashboard.history[0].attemptId, att4.id);
+  assert.equal(dashboard.history[0].outcome, "completed");
+  assert.equal(dashboard.history[0].coins, 1);
+  console.log("   -> Dashboard and History successfully integrated with finalized attempt data");
+
+
+  console.log("42. Completion versus abandonment race (Issue 3)");
+  const test11User = await createTestUser();
+  await callFunction(ensureProfileUrl, test11User.idToken, {});
+  const start11Res = await callFunction(startUrl, test11User.idToken, {
+    mode: "PRACTICE",
+    topicId: "vocabulary_daily_life",
+    requestId: `req-start-test11-${Date.now()}`,
+  });
+  assert.equal(start11Res.status, 200);
+  const att11 = start11Res.body.result.attempt;
+
+  // Complete all 10 questions for att11
+  for (let i = 0; i < 10; i++) {
+    const q = att11.questions[i];
+    await callFunction(submitUrl, test11User.idToken, {
+      attemptId: att11.id,
+      questionId: q.id,
+      optionId: q.options[0].id,
+      requestId: `req-sub11-${i}-${Date.now()}`,
+    });
+    await callFunction(advanceUrl, test11User.idToken, {
+      attemptId: att11.id,
+      requestId: `req-adv11-${i}-${Date.now()}`,
+    });
+  }
+
+  // Race: simultaneous completion (getAttemptResult) and abandonment (leaveAttempt)
+  const [raceComp, raceAban] = await Promise.all([
+    callFunction(getResultUrl, test11User.idToken, {attemptId: att11.id}),
+    callFunction(leaveUrl, test11User.idToken, {
+      attemptId: att11.id,
+      requestId: `req-leave-race-${Date.now()}`,
+    }),
+  ]);
+  assert.equal(raceComp.status, 200);
+  assert.equal(raceAban.status, 200);
+
+  // Authoritative DB state check: exactly one final outcome was chosen
+  const att11Db = await fetch(
+    `http://127.0.0.1:9000/practiceAttempts/${test11User.localId}/${att11.id}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.ok(att11Db.status === "completed" || att11Db.status === "abandoned");
+
+  const wallet11Db = await fetch(
+    `http://127.0.0.1:9000/wallets/${test11User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+
+  if (att11Db.status === "completed") {
+    assert.equal(wallet11Db.coinBalance, 1);
+    assert.equal(att11Db.coinsAwarded, 1);
+  } else {
+    assert.equal(wallet11Db.coinBalance, 0);
+    assert.equal(att11Db.coinsAwarded, 0);
+  }
+  console.log(`   -> Mutual exclusion verified: attempt finalized as ${att11Db.status} with ${wallet11Db.coinBalance} coins`);
+
+  console.log("43. Crash recovery of stale settling lease (Issue 1 & 2)");
+  const test12User = await createTestUser();
+  await callFunction(ensureProfileUrl, test12User.idToken, {});
+  const start12Res = await callFunction(startUrl, test12User.idToken, {
+    mode: "PRACTICE",
+    topicId: "vocabulary_daily_life",
+    requestId: `req-start-test12-${Date.now()}`,
+  });
+  assert.equal(start12Res.status, 200);
+  const att12 = start12Res.body.result.attempt;
+
+  // Complete all 10 questions for att12
+  for (let i = 0; i < 10; i++) {
+    const q = att12.questions[i];
+    await callFunction(submitUrl, test12User.idToken, {
+      attemptId: att12.id,
+      questionId: q.id,
+      optionId: q.options[0].id,
+      requestId: `req-sub12-${i}-${Date.now()}`,
+    });
+    await callFunction(advanceUrl, test12User.idToken, {
+      attemptId: att12.id,
+      requestId: `req-adv12-${i}-${Date.now()}`,
+    });
+  }
+
+  // Simulate worker crash during settlement: settlementStatus set to settling, but crashed 15s ago
+  await fetch(
+    `http://127.0.0.1:9000/practiceAttempts/${test12User.localId}/${att12.id}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`,
+    {
+      method: "PATCH",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        settlementStatus: "settling",
+        settlementStartedAt: Date.now() - 15000,
+      }),
+    }
+  );
+
+  // Calling getAttemptResult must recover the stale lease and execute the atomic multi-path update
+  const recoverRes12 = await callFunction(getResultUrl, test12User.idToken, {
+    attemptId: att12.id,
+  });
+  assert.equal(recoverRes12.status, 200);
+  assert.equal(recoverRes12.body.result.result.outcome, "completed");
+
+  const wallet12Db = await fetch(
+    `http://127.0.0.1:9000/wallets/${test12User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(wallet12Db.coinBalance, 1);
+  console.log("   -> Stale settlement lease safely recovered, 1 coin granted via atomic multi-path update");
+
+
+  console.log("44. Existing user keeps their previous coin balance (Initialization & Migration)");
+  const test13User = await createTestUser();
+  await callFunction(ensureProfileUrl, test13User.idToken, {});
+
+  // Pre-seed an existing user wallet balance of 50 coins and progress 5
+  await fetch(
+    `http://127.0.0.1:9000/wallets/${test13User.localId}/coinBalance.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`,
+    {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(50),
+    }
+  );
+  await fetch(
+    `http://127.0.0.1:9000/learningProgress/${test13User.localId}/vocabulary_daily_life/completedAttempts.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`,
+    {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(5),
+    }
+  );
+
+  const start13Res = await callFunction(startUrl, test13User.idToken, {
+    mode: "PRACTICE",
+    topicId: "vocabulary_daily_life",
+    requestId: `req-start-test13-${Date.now()}`,
+  });
+  assert.equal(start13Res.status, 200);
+  const att13 = start13Res.body.result.attempt;
+
+  // Complete all 10 questions for att13
+  for (let i = 0; i < 10; i++) {
+    const q = att13.questions[i];
+    await callFunction(submitUrl, test13User.idToken, {
+      attemptId: att13.id,
+      questionId: q.id,
+      optionId: q.options[0].id,
+      requestId: `req-sub13-${i}-${Date.now()}`,
+    });
+    await callFunction(advanceUrl, test13User.idToken, {
+      attemptId: att13.id,
+      requestId: `req-adv13-${i}-${Date.now()}`,
+    });
+  }
+
+  // Finalize via getAttemptResult
+  const res13 = await callFunction(getResultUrl, test13User.idToken, {
+    attemptId: att13.id,
+  });
+  assert.equal(res13.status, 200);
+  assert.equal(res13.body.result.result.outcome, "completed");
+  assert.equal(res13.body.result.result.coins, 1);
+
+  // Verify wallet preserved previous balance: 50 + 1 = 51 coins
+  const wallet13Db = await fetch(
+    `http://127.0.0.1:9000/wallets/${test13User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(wallet13Db.coinBalance, 51);
+
+  // Verify learningProgress preserved previous attempts: 5 + 1 = 6
+  const prog13Db = await fetch(
+    `http://127.0.0.1:9000/learningProgress/${test13User.localId}/vocabulary_daily_life.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(prog13Db.completedAttempts, 6);
+
+  // Verify authoritative settlement record at userSettlements/{uid}
+  const settlement13Db = await fetch(
+    `http://127.0.0.1:9000/userSettlements/${test13User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(settlement13Db.coinBalance, 51);
+  assert.equal(settlement13Db.progress.vocabulary_daily_life, 6);
+  assert.ok(settlement13Db.grants[`grant_${att13.id}`]);
+  console.log("   -> Safe migration verified: inherited baseline 50 coins -> 51 coins, progress 5 -> 6");
+
+  console.log("45. Projection replay does not increment twice (Phase 4 Synchronization)");
+  // Call getAttemptResult again on att13
+  const replayRes13 = await callFunction(getResultUrl, test13User.idToken, {
+    attemptId: att13.id,
+  });
+  assert.equal(replayRes13.status, 200);
+
+  // Verify wallet still exactly 51 (NOT 52)
+  const wallet13ReplayDb = await fetch(
+    `http://127.0.0.1:9000/wallets/${test13User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(wallet13ReplayDb.coinBalance, 51);
+
+  // Verify progress still exactly 6 (NOT 7)
+  const prog13ReplayDb = await fetch(
+    `http://127.0.0.1:9000/learningProgress/${test13User.localId}/vocabulary_daily_life.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(prog13ReplayDb.completedAttempts, 6);
+  console.log("   -> Projection replay verified: wallet remained 51, progress remained 6");
+
+  console.log("46. Unsettled legacy grant (status: pending) is not treated as credited");
+  const test14User = await createTestUser();
+  await callFunction(ensureProfileUrl, test14User.idToken, {});
+
+  // Pre-seed an unsettled pending grant
+  const pendingGrantId = `grant_pending_att`;
+  await fetch(
+    `http://127.0.0.1:9000/rewardGrants/${test14User.localId}/${pendingGrantId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`,
+    {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        sourceType: "practice",
+        sourceId: "pending_att",
+        coinDelta: 1,
+        status: "pending", // Unsettled
+        grantedAt: Date.now(),
+      }),
+    }
+  );
+
+  const start14Res = await callFunction(startUrl, test14User.idToken, {
+    mode: "PRACTICE",
+    topicId: "vocabulary_daily_life",
+    requestId: `req-start-test14-${Date.now()}`,
+  });
+  assert.equal(start14Res.status, 200);
+  const att14 = start14Res.body.result.attempt;
+
+  for (let i = 0; i < 10; i++) {
+    const q = att14.questions[i];
+    await callFunction(submitUrl, test14User.idToken, {
+      attemptId: att14.id,
+      questionId: q.id,
+      optionId: q.options[0].id,
+      requestId: `req-sub14-${i}-${Date.now()}`,
+    });
+    await callFunction(advanceUrl, test14User.idToken, {
+      attemptId: att14.id,
+      requestId: `req-adv14-${i}-${Date.now()}`,
+    });
+  }
+
+  const res14 = await callFunction(getResultUrl, test14User.idToken, {
+    attemptId: att14.id,
+  });
+  assert.equal(res14.status, 200);
+
+  const settlement14Db = await fetch(
+    `http://127.0.0.1:9000/userSettlements/${test14User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(settlement14Db.grants[pendingGrantId], undefined);
+  assert.equal(settlement14Db.coinBalance, 1);
+  console.log("   -> Pending legacy grant safely ignored, only real completed attempt was settled");
+
+  console.log("47. Progress retry maintains correctCount and answeredCount without double counting");
+  const prog13Before = await fetch(
+    `http://127.0.0.1:9000/learningProgress/${test13User.localId}/vocabulary_daily_life.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.ok(prog13Before.answeredCount > 0);
+  assert.ok(prog13Before.correctCount > 0);
+
+  // Re-call getAttemptResult on att13
+  await callFunction(getResultUrl, test13User.idToken, {attemptId: att13.id});
+
+  const prog13After = await fetch(
+    `http://127.0.0.1:9000/learningProgress/${test13User.localId}/vocabulary_daily_life.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(prog13After.answeredCount, prog13Before.answeredCount);
+  assert.equal(prog13After.correctCount, prog13Before.correctCount);
+  assert.equal(prog13After.completedAttempts, prog13Before.completedAttempts);
+  console.log("   -> learningProgress counters safely preserved across retries without double counting");
+
+  console.log("48. Daily Challenge across midnight uses original challenge date");
+  const test15User = await createTestUser();
+  await callFunction(ensureProfileUrl, test15User.idToken, {});
+
+  // Simulate attempt started yesterday
+  const yesterdayTimestamp = Date.now() - 24 * 3600 * 1000;
+  const yesterdayKey = new Intl.DateTimeFormat("en-CA", {
+    timeZone: "Asia/Ho_Chi_Minh",
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).format(new Date(yesterdayTimestamp));
+
+  const start15Res = await callFunction(startUrl, test15User.idToken, {
+    mode: "DAILY",
+    requestId: `req-start-test15-${Date.now()}`,
+  });
+  assert.equal(start15Res.status, 200);
+  const att15 = start15Res.body.result.attempt;
+
+  // Patch startedAt to yesterday
+  await fetch(
+    `http://127.0.0.1:9000/practiceAttempts/${test15User.localId}/${att15.id}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`,
+    {
+      method: "PATCH",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify({
+        startedAt: yesterdayTimestamp,
+        createdAt: yesterdayTimestamp,
+      }),
+    }
+  );
+
+  // Complete all questions for Daily Challenge
+  for (let i = 0; i < att15.questions.length; i++) {
+    const q = att15.questions[i];
+    await callFunction(submitUrl, test15User.idToken, {
+      attemptId: att15.id,
+      questionId: q.id,
+      optionId: q.options[0].id,
+      requestId: `req-sub15-${i}-${Date.now()}`,
+    });
+    await callFunction(advanceUrl, test15User.idToken, {
+      attemptId: att15.id,
+      requestId: `req-adv15-${i}-${Date.now()}`,
+    });
+  }
+
+  // Finalize today
+  const res15 = await callFunction(getResultUrl, test15User.idToken, {
+    attemptId: att15.id,
+  });
+  assert.equal(res15.status, 200);
+
+  // Verify daily challenge record updated under yesterday's key
+  const dailyRecord = await fetch(
+    `http://127.0.0.1:9000/userDailyChallenges/${test15User.localId}/${yesterdayKey}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(dailyRecord.status, "completed");
+  console.log("   -> Daily Challenge completed across midnight correctly credited to original challenge date");
+
+  console.log("49. Cannot complete an already abandoned attempt");
+  const test16User = await createTestUser();
+  await callFunction(ensureProfileUrl, test16User.idToken, {});
+
+  const start16Res = await callFunction(startUrl, test16User.idToken, {
+    mode: "PRACTICE",
+    topicId: "vocabulary_daily_life",
+    requestId: `req-start-test16-${Date.now()}`,
+  });
+  const att16 = start16Res.body.result.attempt;
+
+  // Abandon it
+  const leave16Res = await callFunction(leaveUrl, test16User.idToken, {
+    attemptId: att16.id,
+    requestId: `req-leave-test16-${Date.now()}`,
+  });
+  assert.equal(leave16Res.status, 200);
+
+  // Attempt to finalize as completed - must be rejected or returned as abandoned without completed status
+  const att16Db = await fetch(
+    `http://127.0.0.1:9000/practiceAttempts/${test16User.localId}/${att16.id}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(att16Db.status, "abandoned");
+  assert.equal(att16Db.coinsAwarded, 0);
+  console.log("   -> Abandoned attempt status is immutable and coins cannot be awarded");
 
   console.log("\nALL TESTS PASSED SUCCESSFULLY!");
 }

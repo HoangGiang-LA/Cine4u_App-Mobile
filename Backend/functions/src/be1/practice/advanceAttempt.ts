@@ -59,8 +59,8 @@ export const advanceAttempt = onCall(
       }
       const attemptData = attemptSnap.val() as Record<string, unknown>;
 
-      // If attempt is already waiting (all questions finished)
-      if (attemptData.status === "waiting") {
+      // If attempt is already waiting or completed (all questions finished)
+      if (attemptData.status === "waiting" || attemptData.status === "completed") {
         return await buildAttemptResponse(uid, attemptId, attemptData);
       }
 
@@ -68,7 +68,7 @@ export const advanceAttempt = onCall(
         throw new HttpsError("failed-precondition", "Attempt is not active.");
       }
 
-      // Check advance operation idempotency (Issue 2: atomic operation tracking)
+      // Check advance operation idempotency (atomic operation tracking)
       const existingOps = (attemptData.advanceOperations as Record<string, unknown>) || {};
       if (existingOps[requestId]) {
         // This requestId already performed an advance on this attempt
@@ -84,7 +84,7 @@ export const advanceAttempt = onCall(
       const answerSnap = await answerRef.get();
 
       if (!answerSnap.exists()) {
-        // Unanswered: validate deadline (Issue 6 & Issue 4)
+        // Unanswered: validate deadline
         const qSnap = await adminDb
           .ref(`attemptQuestions/${uid}/${attemptId}/${currentIndex}`)
           .get();
@@ -111,7 +111,7 @@ export const advanceAttempt = onCall(
           );
         }
 
-        // Question expired: auto-record timeout exactly once (Issue 7)
+        // Question expired: auto-record timeout exactly once
         const currentQId = (qData.questionId as string) || (qData.id as string) || "";
         await answerRef.transaction((current) => {
           if (current !== null) return; // already answered or timed out concurrently
@@ -126,7 +126,7 @@ export const advanceAttempt = onCall(
           };
         });
 
-        // Reconcile counters from authoritative answers (Issue 1)
+        // Reconcile counters from authoritative answers
         await reconcileAttemptCounters(uid, attemptId, now);
       }
 
@@ -134,7 +134,7 @@ export const advanceAttempt = onCall(
       const isLastQuestion = currentIndex >= questionCount - 1;
 
       if (isLastQuestion) {
-        // Boundary transition: set status to 'waiting' without fabricating reward result (Issue 3: safe check)
+        // Boundary transition: set status to 'waiting'
         const attTx = await attemptRef.transaction((att) => {
           if (!att) return att;
           // Strict validation: cannot transition if already not active OR currentIndex changed
@@ -172,7 +172,7 @@ export const advanceAttempt = onCall(
       const nextOpenedAt = now;
       const nextDeadlineAt = nextOpenedAt + 30000;
 
-      // 7. Update next question's openedAt & deadlineAt first for consistency (Issue 4)
+      // 7. Update next question's openedAt & deadlineAt first for consistency
       await adminDb
         .ref(`attemptQuestions/${uid}/${attemptId}/${nextIndex}`)
         .update({
@@ -180,7 +180,7 @@ export const advanceAttempt = onCall(
           deadlineAt: nextDeadlineAt,
         });
 
-      // 8. Atomic advance of currentIndex & operation record (Issue 2 & Issue 4)
+      // 8. Atomic advance of currentIndex & operation record
       const attTx = await attemptRef.transaction((att) => {
         if (!att) return att;
         if (att.status !== "active") return att;

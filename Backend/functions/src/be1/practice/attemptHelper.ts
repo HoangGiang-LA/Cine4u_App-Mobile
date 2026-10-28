@@ -145,13 +145,14 @@ export async function buildAttemptResponse(
   };
 }
 
-export function getDateKey(): string {
+export function getDateKey(dateInput?: Date | number): string {
+  const date = dateInput ? new Date(dateInput) : new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
+  }).formatToParts(date);
 
   const get = (type: string): string =>
     parts.find((p) => p.type === type)?.value ?? "";
