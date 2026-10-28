@@ -158,3 +158,59 @@ export function getDateKey(): string {
 
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
+
+/**
+ * Reconcile practiceAttempts answeredCount and correctCount from authoritative attemptAnswers.
+ */
+export async function reconcileAttemptCounters(
+  uid: string,
+  attemptId: string,
+  now: number = Date.now()
+): Promise<Record<string, unknown>> {
+  const aSnap = await adminDb.ref(`attemptAnswers/${uid}/${attemptId}`).get();
+  const allAnswers = (aSnap.val() || {}) as Record<string, {isCorrect?: boolean}>;
+  const authoritativeAnswered = Object.keys(allAnswers).length;
+  const authoritativeCorrect = Object.values(allAnswers).filter(
+    (a) => a.isCorrect === true
+  ).length;
+
+  const attTx = await adminDb.ref(`practiceAttempts/${uid}/${attemptId}`).transaction((att) => {
+    if (!att) return att;
+    att.answeredCount = authoritativeAnswered;
+    att.correctCount = authoritativeCorrect;
+    att.updatedAt = now;
+    return att;
+  });
+
+  return (attTx.snapshot.val() as Record<string, unknown>) || {};
+}
+
+/**
+ * Ensure current question in attemptQuestions has valid openedAt and deadlineAt,
+ * recovering from attemptData if needed.
+ */
+export async function ensureQuestionDeadline(
+  uid: string,
+  attemptId: string,
+  index: number,
+  qData: Record<string, unknown>,
+  attemptData: Record<string, unknown>
+): Promise<number> {
+  let deadlineAt = (qData.deadlineAt as number) || (attemptData.deadlineAt as number) || 0;
+  if (!deadlineAt || deadlineAt <= 0) {
+    if (typeof qData.openedAt === "number" && qData.openedAt > 0) {
+      deadlineAt = qData.openedAt + 30000;
+    }
+  }
+
+  // Self-healing recovery: persist missing values to attemptQuestions
+  if (deadlineAt > 0 && (qData.deadlineAt == null || qData.openedAt == null)) {
+    const openedAt = (qData.openedAt as number) || (deadlineAt - 30000);
+    await adminDb.ref(`attemptQuestions/${uid}/${attemptId}/${index}`).update({
+      openedAt,
+      deadlineAt,
+    }).catch(() => {});
+  }
+
+  return deadlineAt;
+}
