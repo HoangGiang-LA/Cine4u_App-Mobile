@@ -1,11 +1,11 @@
 import {HttpsError} from "firebase-functions/v2/https";
 import {adminDb} from "../../config/firebaseAdmin";
-import {buildAttemptResponse, getDateKey, WireAttempt} from "./attemptHelper";
+import {buildAttemptResponse, getDateKey, WireAttempt, WireResult} from "./attemptHelper";
 
 export interface FinalizeOutput {
   serverNow: number;
   attempt: WireAttempt;
-  result: Record<string, unknown>;
+  result: WireResult | Record<string, unknown>;
 }
 
 export interface GrantRecord {

@@ -1,3 +1,4 @@
+import {HttpsError} from "firebase-functions/v2/https";
 import {adminDb} from "../../config/firebaseAdmin";
 
 export interface WireOption {
@@ -22,6 +23,27 @@ export interface WireReceipt {
   correct: boolean | null;
 }
 
+export interface WireReview {
+  question: WireQuestion;
+  pickedId: string | null;
+  correctId: string;
+  explanation: string;
+}
+
+export interface WireResult {
+  attemptId: string;
+  mode: string;
+  correct: number;
+  total: number;
+  coins: number;
+  ratingDelta: number;
+  outcome: string;
+  opponentName: string;
+  opponentCorrect: number;
+  completedAt: number;
+  reviews: WireReview[];
+}
+
 export interface WireAttempt {
   id: string;
   mode: string;
@@ -32,13 +54,145 @@ export interface WireAttempt {
   receipts: WireReceipt[];
   status: string;
   opponentName: string;
-  result: Record<string, unknown> | null;
+  result: WireResult | null;
   reconnectDeadlineAt: number | null;
 }
 
 /**
- * Reconstruct an attempt response from stored data in RTDB.
+ * Build reviews for finalized attempts using trusted backend questionAnswers and attemptReviews.
  */
+export async function buildAttemptReviews(
+  uid: string,
+  attemptId: string,
+  status: string,
+  questions: WireQuestion[],
+  answersRecord?: Record<string, Record<string, unknown>> | null
+): Promise<WireReview[]> {
+  // 1. Terminal state enforcement: reviews containing correct answers must NEVER be generated or cached for active/waiting attempts
+  if (status !== "completed" && status !== "abandoned") {
+    throw new HttpsError(
+      "failed-precondition",
+      "Reviews can only be generated or cached for completed or abandoned attempts."
+    );
+  }
+
+  const reviews: WireReview[] = [];
+  if (!questions || questions.length === 0) {
+    return reviews;
+  }
+
+  // Pre-read any existing attemptReviews (if already persisted)
+  const existingReviewsSnap = await adminDb
+    .ref(`attemptReviews/${uid}/${attemptId}`)
+    .get();
+  const existingReviews = (existingReviewsSnap.val() || {}) as Record<
+    string,
+    Record<string, unknown>
+  >;
+
+  const answers = (answersRecord || {}) as Record<
+    string,
+    Record<string, unknown>
+  >;
+  const newReviewsToPersist: Record<string, unknown> = {};
+  const now = Date.now();
+
+  for (let i = 0; i < questions.length; i++) {
+    const q = questions[i];
+    const key = i.toString();
+
+    // 1. User's picked option
+    const ans =
+      answers[key] ||
+      Object.values(answers).find(
+        (a) => a && (a as Record<string, unknown>).questionId === q.id
+      );
+
+    let pickedId: string | null = null;
+    if (ans && !ans.timedOut && typeof ans.selectedOptionId === "string") {
+      pickedId = ans.selectedOptionId;
+    }
+
+    // 2. Correct answer & explanation
+    const existing = existingReviews[key];
+    let correctId = (existing?.correctOptionId as string) || "";
+    let explanation = (existing?.explanation as string) || "";
+
+    // If not cached or if cached record had an empty/invalid correctOptionId, load from trusted questionAnswers
+    if (!correctId || typeof correctId !== "string" || correctId.trim().length === 0) {
+      const qaSnap = await adminDb
+        .ref(`questionAnswers/${q.id}/${q.version}`)
+        .get();
+
+      if (!qaSnap.exists()) {
+        throw new HttpsError(
+          "internal",
+          `Trusted question answer configuration is missing on server for ${q.id}/${q.version}`
+        );
+      }
+
+      const qa = qaSnap.val() as Record<string, unknown>;
+      correctId = (qa.correctOptionId as string) || "";
+      explanation = typeof qa.explanation === "string" ? qa.explanation : "";
+    }
+
+    // STRICT VALIDATION: Never return or cache reviews with an empty or invalid correctId
+    if (!correctId || typeof correctId !== "string" || correctId.trim().length === 0) {
+      throw new HttpsError(
+        "internal",
+        `Trusted question answer configuration is invalid or missing correctOptionId for ${q.id}/${q.version}`
+      );
+    }
+
+    const optionExists = q.options && q.options.some((opt) => opt.id === correctId);
+    if (!optionExists) {
+      throw new HttpsError(
+        "internal",
+        `Correct answer ${correctId} does not match any valid option for question ${q.id}/${q.version}`
+      );
+    }
+
+    // Only stage for caching if verified valid and not already in existingReviews
+    if (!existingReviews[key]) {
+      newReviewsToPersist[key] = {
+        questionId: q.id,
+        version: q.version,
+        correctOptionId: correctId,
+        explanation,
+        releasedAt: now,
+      };
+    }
+
+    reviews.push({
+      question: {
+        id: q.id,
+        version: q.version,
+        categoryId: q.categoryId,
+        topicId: q.topicId,
+        prompt: q.prompt,
+        options: q.options,
+        passage: q.passage || "",
+        audioText: q.audioText || "",
+      },
+      pickedId,
+      correctId,
+      explanation,
+    });
+  }
+
+  // Persist attemptReviews only for verified terminal attempts
+  if (Object.keys(newReviewsToPersist).length > 0) {
+    await adminDb
+      .ref(`attemptReviews/${uid}/${attemptId}`)
+      .update(newReviewsToPersist)
+      .catch((err) => {
+        console.warn("Failed to persist attemptReviews", {uid, attemptId, err});
+      });
+  }
+
+  return reviews;
+}
+
 export async function buildAttemptResponse(
   uid: string,
   attemptId: string,
@@ -110,8 +264,15 @@ export async function buildAttemptResponse(
   const deadlineAt = (attemptData.deadlineAt as number) ?? 0;
 
   // Build result if completed or abandoned
-  let result: Record<string, unknown> | null = null;
+  let result: WireResult | null = null;
   if (status === "completed" || status === "abandoned") {
+    const reviews = await buildAttemptReviews(
+      uid,
+      attemptId,
+      status,
+      questions,
+      aSnap.val() as Record<string, Record<string, unknown>>
+    );
     result = {
       attemptId,
       mode,
@@ -123,7 +284,7 @@ export async function buildAttemptResponse(
       opponentName: "",
       opponentCorrect: 0,
       completedAt: (attemptData.finishedAt as number) ?? 0,
-      reviews: [],
+      reviews,
     };
   }
 

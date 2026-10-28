@@ -779,7 +779,7 @@ async function runTests() {
   const q0Id = att6.questions[0].id;
   const q0Ver = att6.questions[0].version;
   const qaBackupUrl = `http://127.0.0.1:9000/questionAnswers/${q0Id}/${q0Ver}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`;
-  const originalQA = await fetch(qaBackupUrl).then((r) => r.json());
+  const originalQA18 = await fetch(qaBackupUrl).then((r) => r.json());
 
   // Delete questionAnswers
   await fetch(qaBackupUrl, {method: "DELETE"});
@@ -797,7 +797,7 @@ async function runTests() {
   await fetch(qaBackupUrl, {
     method: "PUT",
     headers: {"Content-Type": "application/json"},
-    body: JSON.stringify(originalQA),
+    body: JSON.stringify(originalQA18),
   });
   console.log("   -> Missing backend questionAnswers correctly rejected with 500 error");
 
@@ -1449,6 +1449,177 @@ async function runTests() {
   assert.equal(att16Db.status, "abandoned");
   assert.equal(att16Db.coinsAwarded, 0);
   console.log("   -> Abandoned attempt status is immutable and coins cannot be awarded");
+
+  console.log("50. BE1-06: Practice reviews verification for completed attempt");
+  const reviewRes4 = await callFunction(getResultUrl, test4User.idToken, {
+    attemptId: att4.id,
+  });
+  assert.equal(reviewRes4.status, 200);
+  const result4 = reviewRes4.body.result.result;
+  assert.equal(result4.attemptId, att4.id);
+  assert.equal(result4.mode, "PRACTICE");
+  assert.equal(result4.outcome, "completed");
+  assert.ok(Array.isArray(result4.reviews));
+  assert.equal(result4.reviews.length, 10);
+
+  // Question 0 was answered correctly
+  const rev0 = result4.reviews[0];
+  assert.equal(rev0.question.id, att4.questions[0].id);
+  assert.equal(rev0.question.version, att4.questions[0].version);
+  assert.deepEqual(rev0.question.options, att4.questions[0].options);
+  assert.equal(rev0.pickedId, rev0.correctId);
+  assert.ok(rev0.explanation.length > 0);
+
+  // Question 1 was answered incorrectly
+  const rev1 = result4.reviews[1];
+  assert.equal(rev1.question.id, att4.questions[1].id);
+  assert.ok(rev1.pickedId !== null);
+  assert.notEqual(rev1.pickedId, rev1.correctId);
+  assert.ok(rev1.explanation.length > 0);
+
+  // Question 2 was timed out
+  const rev2 = result4.reviews[2];
+  assert.equal(rev2.question.id, att4.questions[2].id);
+  assert.equal(rev2.pickedId, null);
+  assert.ok(rev2.correctId.length > 0);
+  assert.ok(rev2.explanation.length > 0);
+
+  // Verify attemptReviews in RTDB
+  const reviewsDb = await fetch(
+    `http://127.0.0.1:9000/attemptReviews/${test4User.localId}/${att4.id}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.ok(reviewsDb !== null);
+  assert.equal(reviewsDb["0"].correctOptionId, rev0.correctId);
+  assert.equal(reviewsDb["0"].explanation, rev0.explanation);
+  console.log("   -> Completed attempt reviews match trusted backend data and original options");
+
+  console.log("51. BE1-06: Security check - Another user cannot read private attempt reviews");
+  const unauthorizedReviewRes = await callFunction(getResultUrl, hackerUser.idToken, {
+    attemptId: att4.id,
+  });
+  assert.equal(unauthorizedReviewRes.status, 404);
+  console.log("   -> Unauthorized attempt access strictly rejected with 404");
+
+  console.log("52. BE1-06: Active attempt cannot reveal reviews or correct answers");
+  const test17User = await createTestUser();
+  await callFunction(ensureProfileUrl, test17User.idToken, {});
+  const start17Res = await callFunction(startUrl, test17User.idToken, {
+    mode: "PRACTICE",
+    topicId: "vocabulary_daily_life",
+    requestId: `req-start-test17-${Date.now()}`,
+  });
+  assert.equal(start17Res.status, 200);
+  const att17 = start17Res.body.result.attempt;
+
+  const activeReviewRes = await callFunction(getResultUrl, test17User.idToken, {
+    attemptId: att17.id,
+  });
+  assert.equal(activeReviewRes.status, 400); // failed-precondition
+  console.log("   -> Active attempt strictly forbidden from exposing reviews");
+
+  console.log("53. BE1-06: Review retrieval does not mutate wallet, ledger, or progress");
+  const walletBefore = await fetch(
+    `http://127.0.0.1:9000/wallets/${test4User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  const progressBefore = await fetch(
+    `http://127.0.0.1:9000/learningProgress/${test4User.localId}/${att4.topicId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+
+  // Call getAttemptResult multiple times
+  await callFunction(getResultUrl, test4User.idToken, {attemptId: att4.id});
+  await callFunction(getResultUrl, test4User.idToken, {attemptId: att4.id});
+
+  const walletAfter = await fetch(
+    `http://127.0.0.1:9000/wallets/${test4User.localId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  const progressAfter = await fetch(
+    `http://127.0.0.1:9000/learningProgress/${test4User.localId}/${att4.topicId}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+
+  assert.equal(walletAfter.coinBalance, walletBefore.coinBalance);
+  assert.equal(progressAfter.completedAttempts, progressBefore.completedAttempts);
+  console.log("   -> Review retrieval is strictly read-only and non-mutating");
+
+  console.log("54. BE1-06: Abandoned attempt reviews are accessible with pickedId: null for unanswered");
+  const abanReviewRes = await callFunction(getResultUrl, test16User.idToken, {
+    attemptId: att16.id,
+  });
+  assert.equal(abanReviewRes.status, 200);
+  assert.equal(abanReviewRes.body.result.result.outcome, "abandoned");
+  assert.equal(abanReviewRes.body.result.result.coins, 0);
+  const abanReviews = abanReviewRes.body.result.result.reviews;
+  assert.equal(abanReviews.length, 10);
+  for (const ar of abanReviews) {
+    assert.equal(ar.pickedId, null);
+    assert.ok(ar.correctId.length > 0);
+    assert.ok(ar.explanation.length > 0);
+  }
+  console.log("   -> Abandoned attempt reviews correctly return outcome 'abandoned' and pickedId: null");
+
+  console.log("55. BE1-06 Safety: Missing or invalid questionAnswers rejects review retrieval with 500 and does not cache");
+  const test18User = await createTestUser();
+  await callFunction(ensureProfileUrl, test18User.idToken, {});
+  const start18Res = await callFunction(startUrl, test18User.idToken, {
+    mode: "PRACTICE",
+    topicId: "vocabulary_daily_life",
+    requestId: `req-start-test18-${Date.now()}`,
+  });
+  const att18 = start18Res.body.result.attempt;
+
+  // Complete attempt
+  for (let i = 0; i < 10; i++) {
+    const q = att18.questions[i];
+    await callFunction(submitUrl, test18User.idToken, {
+      attemptId: att18.id,
+      questionId: q.id,
+      optionId: q.options[0].id,
+      requestId: `req-sub18-${i}-${Date.now()}`,
+    });
+    await callFunction(advanceUrl, test18User.idToken, {
+      attemptId: att18.id,
+      requestId: `req-adv18-${i}-${Date.now()}`,
+    });
+  }
+
+  // Corrupt questionAnswers for question 0 in attemptQuestions
+  const corruptQId = att18.questions[0].id;
+  const corruptVersion = att18.questions[0].version;
+  // Temporarily back up
+  const originalQA = await fetch(
+    `http://127.0.0.1:9000/questionAnswers/${corruptQId}/${corruptVersion}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+
+  await fetch(
+    `http://127.0.0.1:9000/questionAnswers/${corruptQId}/${corruptVersion}/correctOptionId.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`,
+    {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(""), // Invalid empty correctOptionId
+    }
+  );
+
+  // Calling getAttemptResult must fail with 500 error, not return empty or fabricated answer
+  const corruptGetRes = await callFunction(getResultUrl, test18User.idToken, {
+    attemptId: att18.id,
+  });
+  assert.equal(corruptGetRes.status, 500);
+
+  // Verify attemptReviews was NOT cached with invalid correctOptionId
+  const cachedReviewDb = await fetch(
+    `http://127.0.0.1:9000/attemptReviews/${test18User.localId}/${att18.id}/0.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
+  ).then((r) => r.json());
+  assert.equal(cachedReviewDb, null);
+
+  // Restore original questionAnswers
+  await fetch(
+    `http://127.0.0.1:9000/questionAnswers/${corruptQId}/${corruptVersion}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`,
+    {
+      method: "PUT",
+      headers: {"Content-Type": "application/json"},
+      body: JSON.stringify(originalQA),
+    }
+  );
+  console.log("   -> Missing/invalid questionAnswers safely rejected with 500 without caching/fabricating");
 
   console.log("\nALL TESTS PASSED SUCCESSFULLY!");
 }
