@@ -12,6 +12,7 @@ import {
 import { getDatabase } from 'firebase/database'
 import { firebaseConfig } from './config'
 import { sessionFromClaims, type AuthGateway, type FirebaseSession } from './auth'
+import { verifyAdminAccess } from './backend'
 
 const appName = 'english-battle-admin-web'
 export const firebaseApp =
@@ -22,6 +23,7 @@ export const firebaseDatabase = getDatabase(firebaseApp)
 
 async function session(user: User, refresh = false): Promise<FirebaseSession> {
   const token = await getIdTokenResult(user, refresh)
+  if (token.claims.admin === true) await verifyAdminAccess(token.token)
   return sessionFromClaims(user, token.claims)
 }
 

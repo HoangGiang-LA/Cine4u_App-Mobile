@@ -16,6 +16,16 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
+    val backendUrl = providers.gradleProperty("backendBaseUrl")
+        .orElse(providers.environmentVariable("ENGLISH_BATTLE_BACKEND_URL"))
+    buildTypes {
+        getByName("debug") {
+            buildConfigField("String", "BACKEND_BASE_URL", "\"${backendUrl.getOrElse("http://10.0.2.2:8080").replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        }
+        getByName("release") {
+            buildConfigField("String", "BACKEND_BASE_URL", "\"${backendUrl.getOrElse("").replace("\\", "\\\\").replace("\"", "\\\"")}\"")
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
@@ -49,5 +59,4 @@ dependencies {
     implementation("com.google.firebase:firebase-analytics")
     implementation("com.google.firebase:firebase-auth")
     implementation("com.google.firebase:firebase-database")
-    implementation("com.google.firebase:firebase-functions")
 }

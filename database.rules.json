@@ -1,6 +1,24 @@
 {
   "rules": {
     ".read": false,
-    ".write": false
+    ".write": false,
+    "categories": {
+      ".indexOn": [
+        "status"
+      ],
+      ".read": "auth != null && root.child('accountAccess').child(auth.uid).child('status').val() === 'active' && query.orderByChild === 'status' && query.equalTo === 'published'"
+    },
+    "topics": {
+      ".indexOn": [
+        "status",
+        "categoryId"
+      ],
+      ".read": "auth != null && root.child('accountAccess').child(auth.uid).child('status').val() === 'active' && query.orderByChild === 'status' && query.equalTo === 'published'"
+    },
+    "accountAccess": {
+      "$uid": {
+        ".read": "auth != null && auth.uid === $uid"
+      }
+    }
   }
 }

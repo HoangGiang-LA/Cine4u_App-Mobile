@@ -1,6 +1,8 @@
 # English Battle — Web admin
 
-Frontend quản trị React + TypeScript + Vite, chạy độc lập với Gradle/Android. Đã thêm cấu hình Firebase Web và SDK đăng nhập email/mật khẩu. Phạm vi vẫn **chỉ frontend**: chưa viết backend hoặc API quản trị, không sửa Rules, không đọc/ghi dữ liệu nghiệp vụ Firebase.
+Backend tài khoản: [Backend/server](../../Backend/server/README.md), chạy riêng và giữ Firebase Spark. Khi token có claim admin, web xác minh thêm với `getAdminSession` ở server rồi mở thẳng Dashboard. URL dùng `VITE_BACKEND_BASE_URL` (mặc định localhost trong dev). Các trang nghiệp vụ vẫn dùng dữ liệu mẫu, chờ nối API thật.
+
+Web quản trị React + TypeScript + Vite, chạy độc lập với Gradle/Android. Đăng nhập email/mật khẩu dùng Firebase SDK; quyền admin được kiểm tra thêm tại backend riêng. Các API nghiệp vụ quản trị chưa được triển khai và web chưa đọc/ghi dữ liệu nghiệp vụ thật.
 
 ## Chạy trên máy của bạn
 
@@ -11,7 +13,7 @@ npm ci
 npm run dev
 ```
 
-Mở **http://127.0.0.1:5173/**. Đăng nhập bằng tài khoản Firebase thật để kiểm tra phiên xác thực; bấm **Open demo workspace** để xem các trang quản trị bằng dữ liệu mẫu. Nếu đã cài thư viện, chỉ cần `npm run dev`.
+Mở **http://127.0.0.1:5173/** và đăng nhập bằng tài khoản admin Firebase. Sau khi backend xác nhận quyền, web mở Dashboard với đầy đủ các trang mẫu. Trang đăng nhập không có đường vào demo hoặc cơ chế bỏ qua xác thực. Nếu đã cài thư viện, chỉ cần `npm run dev`.
 
 ## Firebase Web đã cấu hình
 
@@ -21,13 +23,13 @@ Cấu hình người dùng cung cấp nằm trong [`src/firebase/config.ts`](src
 
 1. Trong Firebase Console → **Authentication → Sign-in method**, bật **Email/Password** nếu chưa bật.
 2. Dùng tài khoản đã có trong **Authentication → Users**, hoặc tạo tài khoản thử tại đó. Nhập mật khẩu trực tiếp trên trang đăng nhập; không gửi mật khẩu vào chat hoặc file cấu hình.
-3. Chạy web và bấm **Sign in**. Khi thành công, trang hiển thị email, UID, project và trạng thái claim `admin`.
-4. Nếu chưa được cấp claim `admin: true`, màn hình hiển thị **Not assigned**. Claim phải được cấp từ server tin cậy; đăng ký Web App hoặc tạo tài khoản Auth không tự cấp quyền admin.
-5. Nếu claim có sẵn, màn hình vẫn thông báo API quản trị chưa triển khai; không tự mở dữ liệu mô phỏng thành dữ liệu thật. Quyền thật phải tiếp tục được backend và Rules xác thực.
+3. Chạy web và bấm **Sign in**. Tài khoản admin được backend xác nhận sẽ vào thẳng Dashboard. Tên và email trên menu tài khoản lấy từ phiên Firebase.
+4. Tài khoản không có quyền admin sẽ dừng ở màn hình **Administrator access required**. Claim phải được cấp từ server tin cậy. Sau khi được cấp, bấm **Refresh access** hoặc đăng nhập lại.
+5. Khi tải lại trang, web khôi phục phiên và kiểm tra lại quyền trước khi mở trang hiện tại. Nút **Sign out** trong workspace đăng xuất Firebase thật. Các chức năng quản trị cần API riêng cho từng nghiệp vụ.
 
-Phiên Firebase dùng `browserSessionPersistence`; ứng dụng không lưu mật khẩu. Có khôi phục phiên trong tab, đăng xuất và làm mới claim. Khi từ phiên Firebase chuyển sang demo, web đăng xuất Firebase trong trình duyệt trước. Nếu báo `auth/unauthorized-domain`, thêm domain đang chạy (`127.0.0.1` hoặc `localhost`) trong **Authentication → Settings → Authorized domains**.
+Phiên Firebase dùng `browserSessionPersistence`; ứng dụng không lưu mật khẩu. Việc theo dõi phiên tiếp tục chạy khi Dashboard đang mở; lỗi xác thực/quyền sẽ đóng workspace. Nếu báo `auth/unauthorized-domain`, thêm domain đang chạy (`127.0.0.1` hoặc `localhost`) trong **Authentication → Settings → Authorized domains**.
 
-Database URL đã cấu hình đúng vùng `asia-southeast1`; Rules deny-all giữ nguyên. Không bật Analytics, Messaging hoặc upload Storage tự động chỉ vì cấu hình có các trường tương ứng.
+Database URL đã cấu hình đúng vùng `asia-southeast1`. Rules trong thư mục gốc đã publish ngày 30/10/2026, chỉ mở danh mục cho tài khoản active; dữ liệu quản trị đi qua backend.
 
 Giao diện dùng tiếng Anh như 5 ảnh thiết kế. Font Inter và icon được đóng gói cục bộ, không cần gọi CDN.
 
@@ -47,7 +49,7 @@ Giữ rating và xu; không có XP/level, Premium, thanh toán hoặc doanh thu.
 
 ## Dữ liệu và giới hạn
 
-- Các trang quản trị vẫn là **demo frontend**, kể cả bản `npm run build`. Phần xác thực đã dùng Firebase SDK thật; đăng nhập thành công mở màn hình trạng thái tích hợp, chưa mở dữ liệu admin thật. Nút demo không xác thực quyền quản trị.
+- Các trang nghiệp vụ quản trị dùng **dữ liệu mẫu** sau khi admin đăng nhập thật, trong cả dev và bản build. Chưa có dữ liệu quản trị thật hoặc adapter API nghiệp vụ. Chỉ phiên admin đã được backend xác nhận mới mở workspace; cờ demo cũ trong sessionStorage không cấp quyền.
 - Dữ liệu mô phỏng được lưu trong `localStorage` theo khóa `english-battle.admin.demo.v1`. Phiên demo lưu trong `sessionStorage`. Thao tác trong demo không tạo tài khoản hoặc thay đổi dữ liệu Firebase thật.
 - Mỗi trình duyệt có bộ dữ liệu riêng. Đăng xuất giữ dữ liệu; chọn menu tài khoản → **Profile & workspace → Reset demo data** và nhập `RESET` để khôi phục mẫu. Dữ liệu demo không phải cơ chế đồng bộ nhiều admin.
 - Người dùng bị xóa được ẩn và đổi thành “Deleted user” trong lịch sử demo. Chưa có tác động đến Firebase Auth hoặc phiên đang chạy trên điện thoại.

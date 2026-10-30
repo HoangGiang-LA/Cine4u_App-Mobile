@@ -88,6 +88,8 @@ node_modules/
 !**/.env.example
 **/serviceAccountKey.json
 **/*service-account*.json
+**/*firebase-adminsdk*.json
+/Backend/server/secrets/
 *.pem
 *.key
 

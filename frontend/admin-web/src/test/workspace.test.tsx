@@ -1,22 +1,18 @@
-import { fireEvent, render, screen, waitFor, within } from '@testing-library/react'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { describe, expect, it, vi } from 'vitest'
 import App from '../App'
 import { MockAdminService } from '../data/mock-service'
-import { createAuthStub } from './auth-stub'
+import { adminSession, createAuthStub } from './auth-stub'
 
 async function demo() {
   const api = new MockAdminService(localStorage, 0),
     user = userEvent.setup(),
-    auth = createAuthStub()
+    auth = createAuthStub(adminSession)
   render(<App api={api} authLoader={auth.load} />)
-  await waitFor(() =>
-    expect(screen.getByRole('button', { name: 'Open demo workspace' })).toBeEnabled(),
-  )
-  await user.click(screen.getByRole('button', { name: 'Open demo workspace' }))
   await screen.findByRole('heading', { name: 'Dashboard', level: 1 })
   await screen.findByText('Total Users')
-  return { api, user }
+  return { api, user, auth }
 }
 async function page(user: ReturnType<typeof userEvent.setup>, label: string) {
   await user.click(
@@ -27,7 +23,7 @@ async function page(user: ReturnType<typeof userEvent.setup>, label: string) {
 }
 
 describe('Admin workspace frontend', () => {
-  it('shows a Firebase sign-in error, then opens all five pages in demo mode and signs out', async () => {
+  it('opens Dashboard after verified admin sign-in and signs out of Firebase', async () => {
     const api = new MockAdminService(undefined, 0),
       user = userEvent.setup(),
       auth = createAuthStub()
@@ -38,7 +34,22 @@ describe('Admin workspace frontend', () => {
     await screen.findByRole('alert')
     expect(screen.getByRole('alert')).toHaveTextContent('email or password is incorrect')
     expect(auth.gateway.signIn).toHaveBeenCalledWith('admin@example.test', 'password123')
-    await user.click(screen.getByRole('button', { name: 'Open demo workspace' }))
+    vi.mocked(auth.gateway.signIn).mockImplementation(async () => auth.emit(adminSession))
+    await user.type(screen.getByLabelText('Password'), 'password123')
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await screen.findByRole('heading', { name: 'Dashboard', level: 1 })
+    expect(screen.getAllByText(adminSession.name).length).toBeGreaterThan(0)
+    expect(
+      within(screen.getByRole('navigation', { name: 'Main navigation' })).getAllByRole('link'),
+    ).toHaveLength(5)
+    await user.click(screen.getByRole('button', { name: 'English Battle' }))
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+    await screen.findByRole('heading', { name: 'Welcome back' })
+    expect(auth.gateway.signOut).toHaveBeenCalledTimes(1)
+    expect(sessionStorage.getItem('english-battle.admin.demo-session')).toBeNull()
+  })
+  it('keeps all five sample pages accessible to a verified administrator', async () => {
+    const { user } = await demo()
     for (const [nav, title] of [
       ['Dashboard', 'Dashboard'],
       ['Users', 'User Management'],
@@ -54,10 +65,24 @@ describe('Admin workspace frontend', () => {
       'title',
       expect.stringContaining('No live admin data'),
     )
-    await user.click(screen.getByRole('button', { name: 'English Battle' }))
-    await user.click(screen.getByRole('button', { name: 'Sign out' }))
-    expect(screen.getByRole('heading', { name: 'Welcome back' })).toBeVisible()
-    expect(sessionStorage.getItem('english-battle.admin.demo-session')).toBeNull()
+  })
+  it('does not let a stale demo marker or a non-admin session open the workspace', async () => {
+    sessionStorage.setItem('english-battle.admin.demo-session', 'demo')
+    const api = new MockAdminService(undefined, 0)
+    const profile = vi.spyOn(api, 'profile')
+    const auth = createAuthStub({ ...adminSession, isAdmin: false })
+    render(<App api={api} authLoader={auth.load} />)
+    await screen.findByRole('heading', { name: 'Administrator access required' })
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Open demo workspace' })).not.toBeInTheDocument()
+    expect(profile).not.toHaveBeenCalled()
+  })
+  it('closes the workspace when server authorization fails while the session is active', async () => {
+    const { auth } = await demo()
+    act(() => auth.fail({ code: 'backend/access-denied' }))
+    await screen.findByRole('heading', { name: 'Welcome back' })
+    expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
+    expect(screen.getByRole('alert')).toHaveTextContent('Administrator access was denied')
   })
   it('adds a user, filters and finds it, edits it and bans it with a reason', async () => {
     const { api, user } = await demo()

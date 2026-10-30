@@ -1,5 +1,7 @@
 # Hợp đồng tích hợp v1 — chưa có backend
 
+Backend tài khoản đã được triển khai riêng trong `Backend/server`: app gọi HTTPS JSON `/api/{method}`, giữ DTO và tên phương thức mobile hiện có. Hai API `ensureUserProfile` và `getAdminSession` đã có code; API học tập và các ánh xạ quản trị bên dưới vẫn là hợp đồng để phát triển tiếp. Rules hoạt động hiện tại nằm ở `database.rules.json` gốc; bản proposed là quyền mở rộng chưa áp dụng.
+
 - `business-rules.v1.json`: chính sách đã chốt và các mặc định triển khai được ghi riêng.
 - `mobile.v1.mjs`: JSON Schema cho request/response của 13 callable Android; không chứa code xử lý server.
 - `admin.v1.json`: ánh xạ 22 phương thức AdminService, gồm 21 callable đề xuất và một `reset` chỉ dùng demo. Kiểu payload đầy đủ tiếp tục lấy từ `admin-web/src/domain.ts`.

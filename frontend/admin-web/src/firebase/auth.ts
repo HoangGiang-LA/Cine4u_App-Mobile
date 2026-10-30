@@ -30,10 +30,26 @@ export function sessionFromClaims(
 export const loadAuthGateway = (): Promise<AuthGateway> =>
   import('./client').then((m) => m.authGateway)
 
+export function isAuthModuleLoadError(error: unknown) {
+  const message =
+    typeof error === 'object' && error !== null && 'message' in error ? String(error.message) : ''
+  return /failed to fetch dynamically imported module|importing a module script failed|error loading dynamically imported module/i.test(
+    message,
+  )
+}
+
 export function authError(error: unknown) {
+  if (isAuthModuleLoadError(error)) {
+    return 'The sign-in module could not be loaded. Reload this page and try again.'
+  }
   const code =
     typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : ''
   const messages: Record<string, string> = {
+    'backend/not-configured': 'The administration server has not been configured.',
+    'backend/unavailable':
+      'Could not reach the administration server. Check the connection and try again.',
+    'backend/access-denied':
+      'Administrator access was denied. Your account may be blocked or your access revoked.',
     'auth/invalid-email': 'Enter a valid email address.',
     'auth/invalid-credential': 'The email or password is incorrect.',
     'auth/invalid-login-credentials': 'The email or password is incorrect.',

@@ -1,8 +1,12 @@
 import { expect, test, type Page } from '@playwright/test'
+import { mockFirebase } from './auth-fixture'
 
-async function enter(page: Page) {
+async function enter(page: Page, credentials?: { email: string; password: string }) {
+  const auth = credentials || (await mockFirebase(page))
   await page.goto('/')
-  await page.getByRole('button', { name: 'Open demo workspace' }).click()
+  await page.getByLabel('Email address').fill(auth.email)
+  await page.getByLabel('Password').fill(auth.password)
+  await page.getByRole('button', { name: 'Sign in', exact: true }).click()
   await expect(page.getByText('Total Users', { exact: true })).toBeVisible()
 }
 async function navigate(page: Page, name: string) {
@@ -18,12 +22,16 @@ test('all five design pages render without browser errors or page overflow', asy
     external: string[] = []
   page.on('pageerror', (e) => errors.push(e.message))
   page.on('request', (r) => {
-    if (/^https?:/.test(r.url()) && new URL(r.url()).hostname !== '127.0.0.1')
+    if (
+      /^https?:/.test(r.url()) &&
+      !['127.0.0.1', 'identitytoolkit.googleapis.com'].includes(new URL(r.url()).hostname)
+    )
       external.push(r.url())
   })
+  const credentials = await mockFirebase(page)
   await page.goto('/')
   await page.screenshot({ path: `docs/qa/${info.project.name}-login.png`, fullPage: true })
-  await enter(page)
+  await enter(page, credentials)
   for (const [nav, title, ready] of [
     ['Dashboard', 'Dashboard', 'Recent Activities'],
     ['Users', 'User Management', 'All users'],

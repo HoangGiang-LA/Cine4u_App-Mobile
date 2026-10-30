@@ -28,24 +28,30 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
 
 @Composable fun EnglishBattleApp(initial: String = "Splash", startInDemo: Boolean = false,
     auth: AuthViewModel = viewModel(), catalog: CatalogViewModel = viewModel(),
-    userData: UserDataViewModel = viewModel(), play: PlayViewModel = viewModel()) {
+    userData: UserDataViewModel = viewModel(), play: PlayViewModel = viewModel(),
+    access: AccountAccessViewModel = viewModel()) {
     val authState by auth.state.collectAsStateWithLifecycle()
+    val accessState by access.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
     val onlineFlow = remember(context) { connectionFlow(context) }
     val online by onlineFlow.collectAsStateWithLifecycle(initialValue = true)
     val identity = authState.user
     val sessionKey = identity?.let { "${authState.mode.name}-${it.uid}" }
+    val ready = sessionKey != null && accessState.key == sessionKey && accessState.ready
     LaunchedEffect(startInDemo) { if (BuildConfig.DEBUG && startInDemo) auth.enterDemo() }
     LaunchedEffect(sessionKey) {
-        if (identity != null) {
+        if (identity != null) access.connect(authState.mode, identity.uid) else access.clear()
+    }
+    LaunchedEffect(sessionKey, ready) {
+        if (identity != null && ready) {
             catalog.connect(authState.mode); userData.connect(authState.mode); play.connect(authState.mode, identity.uid)
         } else { catalog.clear(); userData.clear(); play.clear() }
     }
     val owner = LocalLifecycleOwner.current
-    DisposableEffect(owner, sessionKey) {
+    DisposableEffect(owner, sessionKey, ready) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) play.setForeground(false)
-            if (event == Lifecycle.Event.ON_START) { play.setForeground(true); if (identity != null) userData.refresh() }
+            if (event == Lifecycle.Event.ON_START) { play.setForeground(true); if (ready) userData.refresh() }
         }
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
@@ -60,6 +66,13 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
                 if (route == Route.Splash) SplashScreen { route = Route.Login }
                 else AuthScreen(route, authState, { auth.dismiss(); route = it }, { route = Route.Login },
                     auth::submit, auth::reset, auth::dismiss, if (BuildConfig.DEBUG) auth::enterDemo else null)
+            } else if (!ready) {
+                Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
+                    val error = accessState.error?.takeIf { accessState.key == sessionKey }
+                    if (error == null) LoadingPanel("Đang khởi tạo tài khoản...")
+                    else ErrorPanel(error, access::retry)
+                    Secondary("Đăng xuất", onClick = auth::signOut)
+                }
             } else key(sessionKey) {
                 SignedInApp(identity, authState, initial, catalog, userData, play, auth)
             }

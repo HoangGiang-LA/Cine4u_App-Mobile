@@ -32,7 +32,7 @@ const dashboard = object({rating: int, coins: int, wins: int, losses: int, draws
 const response = props => object({serverNow: int, ...props});
 const empty = object({});
 export const mobileContract = {
-  version: 1, region: 'asia-southeast1', transport: 'firebase-callable',
+  version: 1, region: 'asia-southeast1', transport: 'https-json', endpoint: '/api/{method}',
   methods: {
     ensureUserProfile: {request: empty, response: response({}), writes: true},
     getUserDashboard: {request: empty, response: response({dashboard})},

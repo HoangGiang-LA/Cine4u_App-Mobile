@@ -4,8 +4,6 @@ import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.*
 import com.google.firebase.database.*
-import com.google.firebase.functions.FirebaseFunctions
-import com.google.firebase.functions.FirebaseFunctionsException
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.TimeoutCancellationException
 import kotlinx.coroutines.channels.awaitClose
@@ -27,6 +25,7 @@ class FirebaseAuthRepository(private val auth: FirebaseAuth = FirebaseAuth.getIn
     override val users: Flow<UserIdentity?> = combine(authUsers, profileUpdates) { _, _ -> identity() }.distinctUntilChanged()
     override suspend fun signIn(email: String, password: String) { withTimeout(20_000) { auth.signInWithEmailAndPassword(email, password).await() } }
     override suspend fun signUp(name: String, email: String, password: String) {
+        if (!PasswordPolicy.isValid(password)) throw UserFacingException(PasswordPolicy.MESSAGE)
         withTimeout(20_000) {
             val user = auth.createUserWithEmailAndPassword(email, password).await().user ?: throw UserFacingException("Không tạo được tài khoản. Vui lòng thử lại.")
             // The account exists even if the optional name update fails. Auth state still owns the session.
@@ -83,17 +82,10 @@ class ServerClock {
 }
 
 class FirebaseGameRepository(private val clock: ServerClock,
-    private val functions: FirebaseFunctions = FirebaseFunctions.getInstance("asia-southeast1")) : GameRepository {
+    private val backend: BackendClient = BackendClient()) : GameRepository {
     private suspend fun call(name: String, data: Map<String, Any?> = emptyMap()): JSONObject = withTimeout(20_000) {
         val sentAt = System.currentTimeMillis()
-        val response = try { functions.getHttpsCallable(name).call(data).await().data }
-        catch (e: FirebaseFunctionsException) {
-            if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED) FirebaseAuth.getInstance().signOut()
-            throw e
-        }
-        val raw = response as? Map<*, *>
-            ?: throw UserFacingException("Dịch vụ trả về dữ liệu không hợp lệ. Vui lòng thử lại.")
-        val json = JSONObject(raw)
+        val json = backend.call(name, data)
         if (json.has("serverNow")) clock.synchronize(json.getLong("serverNow"), sentAt, System.currentTimeMillis())
         json
     }
@@ -121,22 +113,27 @@ fun friendlyError(error: Throwable): String {
     if (error is CancellationException && error !is TimeoutCancellationException) throw error
     return when (error) {
         is UserFacingException -> error.message.orEmpty()
-        is FirebaseNetworkException, is TimeoutCancellationException -> "Kết nối bị gián đoạn hoặc phản hồi quá lâu. Kiểm tra mạng và thử lại."
+        is FirebaseNetworkException, is TimeoutCancellationException, is java.io.IOException -> "Không kết nối được máy chủ. Kiểm tra mạng và thử lại."
         is FirebaseTooManyRequestsException -> "Bạn thao tác quá nhiều lần. Vui lòng đợi một lúc rồi thử lại."
-        is FirebaseAuthWeakPasswordException -> "Mật khẩu chưa đủ mạnh. Hãy dùng ít nhất 6 ký tự."
+        is FirebaseAuthWeakPasswordException -> PasswordPolicy.MESSAGE
         is FirebaseAuthUserCollisionException -> "Email đã được sử dụng. Hãy đăng nhập hoặc đặt lại mật khẩu."
         is FirebaseAuthInvalidCredentialsException, is FirebaseAuthInvalidUserException -> "Email hoặc mật khẩu không đúng, hoặc tài khoản không còn khả dụng."
         is FirebaseAuthException -> when (error.errorCode) {
+            "ERROR_PASSWORD_DOES_NOT_MEET_REQUIREMENTS", "ERROR_WEAK_PASSWORD" -> PasswordPolicy.MESSAGE
             "ERROR_OPERATION_NOT_ALLOWED" -> "Phương thức đăng nhập này chưa được bật. Vui lòng thử lại sau."
             "ERROR_REQUIRES_RECENT_LOGIN" -> "Vui lòng đăng nhập lại để thực hiện thay đổi này."
             else -> "Không hoàn tất được xác thực. Vui lòng kiểm tra thông tin và thử lại."
         }
-        is FirebaseFunctionsException -> when (error.code) {
-            FirebaseFunctionsException.Code.UNAUTHENTICATED -> "Phiên đăng nhập đã hết hiệu lực. Vui lòng đăng nhập lại."
-            FirebaseFunctionsException.Code.NOT_FOUND, FirebaseFunctionsException.Code.UNIMPLEMENTED -> "Tính năng này chưa sẵn sàng. Vui lòng quay lại sau."
-            FirebaseFunctionsException.Code.PERMISSION_DENIED -> "Tài khoản chưa được cấp quyền thực hiện thao tác này."
-            FirebaseFunctionsException.Code.FAILED_PRECONDITION, FirebaseFunctionsException.Code.ALREADY_EXISTS -> "Phiên hoặc lượt chơi đã thay đổi. Hãy tải lại trạng thái để tiếp tục."
-            FirebaseFunctionsException.Code.UNAVAILABLE, FirebaseFunctionsException.Code.DEADLINE_EXCEEDED -> "Dịch vụ đang gián đoạn. Vui lòng thử lại."
+        is BackendException -> when (error.code) {
+            BackendException.Code.UNAUTHENTICATED -> "Phiên đăng nhập đã hết hiệu lực. Vui lòng đăng nhập lại."
+            BackendException.Code.NOT_FOUND, BackendException.Code.UNIMPLEMENTED -> "Tính năng này chưa sẵn sàng. Vui lòng quay lại sau."
+            BackendException.Code.PERMISSION_DENIED -> when (error.details?.optString("reason")) {
+                "account-banned" -> "Tài khoản đã bị khóa. Vui lòng liên hệ quản trị viên."
+                "account-deleted" -> "Tài khoản không còn khả dụng. Vui lòng liên hệ quản trị viên."
+                else -> "Tài khoản chưa được cấp quyền thực hiện thao tác này."
+            }
+            BackendException.Code.FAILED_PRECONDITION, BackendException.Code.ALREADY_EXISTS -> "Phiên hoặc lượt chơi đã thay đổi. Hãy tải lại trạng thái để tiếp tục."
+            BackendException.Code.UNAVAILABLE, BackendException.Code.DEADLINE_EXCEEDED -> "Dịch vụ đang gián đoạn. Vui lòng thử lại."
             else -> "Không hoàn tất được thao tác. Vui lòng tải lại trạng thái trước khi thử lại."
         }
         else -> "Không tải được dữ liệu. Vui lòng thử lại."
