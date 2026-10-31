@@ -1,6 +1,6 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
-import {buildAttemptResponse} from "./attemptHelper";
+import {readAttemptResponse as buildAttemptResponse} from "./finalizeAttempt";
 
 export const resumeAttempt = onCall(
   {

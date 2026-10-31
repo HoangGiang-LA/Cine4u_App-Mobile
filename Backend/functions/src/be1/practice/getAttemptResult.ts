@@ -1,7 +1,7 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {finalizeAttemptLogic} from "./finalizeAttempt";
-import {buildAttemptResponse} from "./attemptHelper";
+import {isDailyExpired} from "./attemptHelper";
 
 export const getAttemptResult = onCall(
   {
@@ -44,7 +44,7 @@ export const getAttemptResult = onCall(
       const status = (attemptData.status as string) || "active";
 
       // 4. Finalize if in waiting state, or return existing result if already completed/abandoned
-      if (status === "waiting") {
+      if (status === "waiting" || isDailyExpired(attemptData)) {
         const finalized = await finalizeAttemptLogic(uid, attemptId, "completed");
         return {
           serverNow: finalized.serverNow,
@@ -53,10 +53,11 @@ export const getAttemptResult = onCall(
       }
 
       if (status === "completed" || status === "abandoned") {
-        const res = await buildAttemptResponse(uid, attemptId, attemptData);
+        const res = await finalizeAttemptLogic(uid, attemptId,
+          status === "completed" ? "completed" : "abandoned");
         return {
           serverNow: res.serverNow,
-          result: res.attempt.result || {},
+          result: res.result,
         };
       }
 

@@ -2,9 +2,11 @@ import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {
   WireQuestion,
-  buildAttemptResponse,
   getDateKey,
+  normalizeMode,
 } from "./attemptHelper";
+import {readAttemptResponse as buildAttemptResponse} from "./finalizeAttempt";
+import {startDailyAttempt} from "./startDailyAttempt";
 
 const QUESTION_TIME_LIMIT_SECONDS = 30;
 const OPERATION_LEASE_MS = 10_000; // 10s lease timeout to recover stale pending operations
@@ -84,6 +86,22 @@ async function selectQuestions(
     );
   }
 
+  let pool: Record<string, unknown> = {};
+  if (mode !== "PRACTICE") {
+    const templateId = mode === "TEST" ? "test_mixed" : "daily_mixed";
+    const template = (await adminDb.ref(`quizTemplates/${templateId}`).get()).val();
+    if (!template || template.status !== "published" ||
+        normalizeMode(template.mode) !== mode || template.questionCount !== count ||
+        template.questionTimeLimitSeconds !== 30 || template.completionCoins !== 2 ||
+        template.completionPolicy !== "all_questions_resolved") {
+      throw new HttpsError("failed-precondition", "Learning template is missing or invalid.");
+    }
+    pool = template.questionPool || {};
+    if (pool.scope !== "all_categories" && typeof pool.categoryId !== "string") {
+      throw new HttpsError("failed-precondition", "Question pool scope is not configured.");
+    }
+  }
+
   // Load all questions and filter published questions in memory (avoids missing .indexOn)
   const questionsSnap = await adminDb
     .ref("questions")
@@ -104,6 +122,9 @@ async function selectQuestions(
     const meta = child.val() as QuestionMeta;
     if (meta.status !== "published") return;
     if (!meta.currentVersion) return;
+    if (pool.categoryId && meta.categoryId !== pool.categoryId) return;
+    if (pool.topicId && meta.topicId !== pool.topicId) return;
+    if (!["vocabulary", "grammar", "listening", "reading"].includes(meta.categoryId)) return;
 
     // PRACTICE must filter by topicId
     if (mode === "PRACTICE" && topicId) {
@@ -121,25 +142,27 @@ async function selectQuestions(
   }
 
   // Select random subset
-  const selected = shuffle(allQuestions).slice(0, count);
+  const selected = shuffle(allQuestions);
 
   // Load version content for selected questions
   const wireQuestions: WireQuestion[] = [];
 
   for (const {id, meta} of selected) {
-    const versionSnap = await adminDb
-      .ref(`questionVersions/${id}/${meta.currentVersion}`)
-      .get();
-
-    if (!versionSnap.exists()) {
-      throw new HttpsError(
-        "internal",
-        "Question content missing."
-      );
-    }
-
-    const content = versionSnap.val() as VersionContent;
+    const [versionSnap, answerSnap] = await Promise.all([
+      adminDb.ref(`questionVersions/${id}/${meta.currentVersion}`).get(),
+      adminDb.ref(`questionAnswers/${id}/${meta.currentVersion}`).get(),
+    ]);
+    const content = versionSnap.val() as VersionContent | null;
+    const correctOptionId = answerSnap.val()?.correctOptionId;
+    if (!content || typeof content.prompt !== "string" || !content.prompt.trim() ||
+        !content.options || Object.keys(content.options).length < 2 ||
+        Object.values(content.options).some((option) => !option || typeof option.text !== "string") ||
+        typeof correctOptionId !== "string" || !content.options[correctOptionId]) continue;
     wireQuestions.push(buildWireQuestion(id, meta, content));
+    if (wireQuestions.length === count) break;
+  }
+  if (wireQuestions.length !== count) {
+    throw new HttpsError("failed-precondition", "Not enough questions with valid content and answers.");
   }
 
   return wireQuestions;
@@ -169,6 +192,10 @@ export const startAttempt = onCall(
     const mode = data?.mode;
     const topicId = data?.topicId ?? null;
     const requestId = data?.requestId;
+
+    if (topicId !== null && (typeof topicId !== "string" || !topicId.trim())) {
+      throw new HttpsError("invalid-argument", "topicId must be a non-empty string or null.");
+    }
 
     // 2. Validate input format and safe key characters
     if (!mode || !requestId) {
@@ -293,9 +320,10 @@ export const startAttempt = onCall(
         }
         if (existingAttemptData) {
           // Validate parameter consistency on attempt record
-          const attMode = ((existingAttemptData.mode as string) || "").toUpperCase();
+          const attMode = normalizeMode(existingAttemptData.mode);
           const attTopic = (existingAttemptData.topicId as string) || "";
-          if (attMode !== mode.toUpperCase() || attTopic !== (topicId ?? "")) {
+          if (attMode !== mode.toUpperCase() ||
+              (mode === "PRACTICE" && attTopic !== (topicId ?? ""))) {
             throw new HttpsError(
               "invalid-argument",
               "requestId has already been used with different parameters."
@@ -306,7 +334,8 @@ export const startAttempt = onCall(
       }
 
       // 4c. Atomic reservation with lease TTL and deterministic attempt ID
-      let assignedAttemptId: string | null = null;
+      const assignedAttemptId = mode === "DAILY" ? `daily_${getDateKey(now)}` :
+        adminDb.ref(`practiceAttempts/${uid}`).push().key!;
       const txResult = await opRef.transaction((current) => {
         if (current !== null) {
           // If already completed, do not overwrite
@@ -325,11 +354,10 @@ export const startAttempt = onCall(
           }
         }
         // Deterministic attemptId: preserve existing attemptId when reclaiming a stale lease
-        assignedAttemptId = current?.attemptId || adminDb.ref(`practiceAttempts/${uid}`).push().key!;
         return {
           status: "pending",
           workerToken,
-          attemptId: assignedAttemptId,
+          attemptId: current?.attemptId || assignedAttemptId,
           mode: mode.toUpperCase(),
           topicId: topicId ?? "",
           createdAt: now,
@@ -338,30 +366,26 @@ export const startAttempt = onCall(
 
       if (!txResult.committed) {
         acquiredLock = false;
-        // Concurrent request won the race; wait briefly for attempt creation
-        let waitAttemptId = txResult.snapshot.val()?.attemptId as string | undefined;
-        if (!waitAttemptId) {
-          await new Promise((r) => setTimeout(r, 600));
-          const retryOp = await opRef.get();
-          waitAttemptId = retryOp.val()?.attemptId as string | undefined;
-        }
-
-        if (waitAttemptId) {
-          const aSnap = await adminDb
-            .ref(`practiceAttempts/${uid}/${waitAttemptId}`)
-            .get();
-          if (aSnap.exists()) {
-            const aData = aSnap.val() as Record<string, unknown>;
-            const attMode = ((aData.mode as string) || "").toUpperCase();
-            const attTopic = (aData.topicId as string) || "";
-            if (attMode !== mode.toUpperCase() || attTopic !== (topicId ?? "")) {
-              throw new HttpsError(
-                "invalid-argument",
-                "requestId has already been used with different parameters."
-              );
+        // The winning request may still be selecting/validating its questions.
+        // Poll the operation, including when its attemptId is already reserved.
+        for (let retry = 0; retry < 40; retry++) {
+          const waitingOp = (await opRef.get()).val();
+          const waitAttemptId = waitingOp?.attemptId as string | undefined;
+          if (waitAttemptId) {
+            const aSnap = await adminDb.ref(`practiceAttempts/${uid}/${waitAttemptId}`).get();
+            if (aSnap.exists()) {
+              const aData = aSnap.val() as Record<string, unknown>;
+              const attMode = normalizeMode(aData.mode);
+              const attTopic = (aData.topicId as string) || "";
+              if (attMode !== mode.toUpperCase() ||
+                  (mode === "PRACTICE" && attTopic !== (topicId ?? ""))) {
+                throw new HttpsError("invalid-argument",
+                  "requestId has already been used with different parameters.");
+              }
+              return buildAttemptResponse(uid, waitAttemptId, aData);
             }
-            return buildAttemptResponse(uid, waitAttemptId, aData);
           }
+          await new Promise((resolve) => setTimeout(resolve, 100));
         }
 
         throw new HttpsError(
@@ -374,37 +398,16 @@ export const startAttempt = onCall(
       acquiredLock = true;
       const attemptId = txResult.snapshot.val()?.attemptId || assignedAttemptId!;
 
-      // 5. DAILY mode: check one-per-day limit
       if (mode === "DAILY") {
-        const dateKey = getDateKey();
-        const dailySnap = await adminDb
-          .ref(`userDailyChallenges/${uid}/${dateKey}`)
-          .get();
-
-        if (dailySnap.exists()) {
-          const daily = dailySnap.val() as Record<string, unknown>;
-          const status = daily.status as string;
-
-          if (status === "active" || status === "waiting") {
-            const existingDailyAttemptId = daily.attemptId as string;
-            const aSnap = await adminDb
-              .ref(`practiceAttempts/${uid}/${existingDailyAttemptId}`)
-              .get();
-
-            if (aSnap.exists()) {
-              return buildAttemptResponse(
-                uid,
-                existingDailyAttemptId,
-                aSnap.val() as Record<string, unknown>
-              );
-            }
-          }
-
-          throw new HttpsError(
-            "already-exists",
-            "Daily challenge already used today."
-          );
-        }
+        const response = await startDailyAttempt(
+          uid, attemptId, requestId, () => selectQuestions(mode, null)
+        );
+        await opRef.transaction((current) => {
+          if (current?.workerToken !== workerToken) return;
+          return {...current, status: "completed", attemptId: response.attempt.id,
+            completedAt: Date.now()};
+        });
+        return response;
       }
 
       // 6. Select questions
@@ -460,7 +463,8 @@ export const startAttempt = onCall(
 
       const attemptRecord: Record<string, unknown> = {
         mode: mode.toLowerCase(),
-        categoryId: questions[0]?.categoryId ?? "",
+        ...(mode === "TEST" ? {templateId: "test_mixed"} : {}),
+        categoryId: mode === "PRACTICE" ? questions[0]?.categoryId ?? "" : "",
         topicId: topicId ?? "",
         status: "active",
         startedAt: openedAt,
@@ -508,16 +512,6 @@ export const startAttempt = onCall(
         topicId: topicId ?? "",
         completedAt: openedAt,
       };
-
-      // For DAILY mode, reserve the daily slot
-      if (mode === "DAILY") {
-        const dateKey = getDateKey();
-        updates[`userDailyChallenges/${uid}/${dateKey}`] = {
-          attemptId,
-          status: "active",
-          startedAt: openedAt,
-        };
-      }
 
       await adminDb.ref().update(updates);
 

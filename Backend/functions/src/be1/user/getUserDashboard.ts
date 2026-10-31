@@ -337,7 +337,12 @@ type HistoryResult = {
 const modeMap: Record<string, HistoryResult["mode"]> = {
   practice: "PRACTICE",
   test: "TEST",
+  daily: "DAILY",
   dailyChallenge: "DAILY",
+  dailychallenge: "DAILY",
+  PRACTICE: "PRACTICE",
+  TEST: "TEST",
+  DAILY: "DAILY",
 };
 
 const practiceData = practiceHistorySnap.val() ?? {};
