@@ -257,7 +257,7 @@ export async function buildAttemptResponse(
   }
 
   const modeRaw = (attemptData.mode as string) ?? "practice";
-  const mode = modeRaw.toUpperCase();
+  const mode = normalizeMode(modeRaw);
   const currentIndex = (attemptData.currentIndex as number) ?? 0;
   const status = (attemptData.status as string) ?? "active";
   const topicId = (attemptData.topicId as string) ?? "";
@@ -307,7 +307,7 @@ export async function buildAttemptResponse(
 }
 
 export function getDateKey(dateInput?: Date | number): string {
-  const date = dateInput ? new Date(dateInput) : new Date();
+  const date = dateInput !== undefined ? new Date(dateInput) : new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
     year: "numeric",
@@ -319,6 +319,27 @@ export function getDateKey(dateInput?: Date | number): string {
     parts.find((p) => p.type === type)?.value ?? "";
 
   return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
+export function normalizeMode(mode: unknown): string {
+  const value = typeof mode === "string" ? mode.toUpperCase() : "";
+  return value === "DAILYCHALLENGE" ? "DAILY" : value;
+}
+
+export function dailyEndsAt(attempt: Record<string, unknown>): number {
+  const startedAt = Number(attempt.startedAt || attempt.createdAt);
+  if (!Number.isFinite(startedAt) || startedAt <= 0) {
+    throw new HttpsError("failed-precondition", "Daily start time is missing.");
+  }
+  return Date.parse(`${getDateKey(startedAt)}T00:00:00+07:00`) + 86400000;
+}
+
+export function isDailyExpired(
+  attempt: Record<string, unknown>, now = Date.now()
+): boolean {
+  return normalizeMode(attempt.mode) === "DAILY" &&
+    attempt.status !== "completed" && attempt.status !== "abandoned" &&
+    now >= dailyEndsAt(attempt);
 }
 
 /**
@@ -365,8 +386,12 @@ export async function ensureQuestionDeadline(
     }
   }
 
+  if (normalizeMode(attemptData.mode) === "DAILY" && deadlineAt > 0) {
+    deadlineAt = Math.min(deadlineAt, dailyEndsAt(attemptData));
+  }
+
   // Self-healing recovery: persist missing values to attemptQuestions
-  if (deadlineAt > 0 && (qData.deadlineAt == null || qData.openedAt == null)) {
+  if (deadlineAt > 0 && (qData.deadlineAt !== deadlineAt || qData.openedAt == null)) {
     const openedAt = (qData.openedAt as number) || (deadlineAt - 30000);
     await adminDb.ref(`attemptQuestions/${uid}/${attemptId}/${index}`).update({
       openedAt,

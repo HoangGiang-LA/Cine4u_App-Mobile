@@ -1,10 +1,11 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {
-  buildAttemptResponse,
+  isDailyExpired,
   ensureQuestionDeadline,
   reconcileAttemptCounters,
 } from "./attemptHelper";
+import {readAttemptResponse as buildAttemptResponse} from "./finalizeAttempt";
 
 const REQUEST_ID_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -68,6 +69,9 @@ export const submitAttemptAnswer = onCall(
         throw new HttpsError("not-found", "Attempt not found or access denied.");
       }
       const attemptData = attemptSnap.val() as Record<string, unknown>;
+      if (isDailyExpired(attemptData)) {
+        return buildAttemptResponse(uid, attemptId, attemptData);
+      }
 
       // 5. Verify attempt status
       if (attemptData.status !== "active") {
@@ -118,6 +122,9 @@ export const submitAttemptAnswer = onCall(
       if (optionId !== null && now > deadlineAt) {
         throw new HttpsError("failed-precondition", "Question deadline has expired.");
       }
+      if (optionId === null && now < deadlineAt) {
+        throw new HttpsError("failed-precondition", "Question has not timed out.");
+      }
 
       // 9. Fetch correct answer from trusted backend questionAnswers (Issue 5: must error if missing/invalid)
       let isCorrect = false;
@@ -144,6 +151,9 @@ export const submitAttemptAnswer = onCall(
             `Invalid correctOptionId configuration on server for ${questionId}/${version}`
           );
         }
+        if (!options.some((option) => option.id === qa.correctOptionId)) {
+          throw new HttpsError("internal", "Correct answer does not match assigned options.");
+        }
         isCorrect = optionId === qa.correctOptionId;
       }
 
@@ -151,6 +161,7 @@ export const submitAttemptAnswer = onCall(
       const answerRef = adminDb.ref(`attemptAnswers/${uid}/${attemptId}/${currentIndex}`);
 
       const txResult = await answerRef.transaction((current) => {
+        if (isDailyExpired(attemptData)) return;
         if (current !== null) {
           return; // Abort: answer already exists
         }

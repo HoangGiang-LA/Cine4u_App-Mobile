@@ -573,6 +573,12 @@ async function runTests() {
     requestId: `adv-1-${Date.now()}`,
   });
   const q2 = att4.questions[2];
+  // A timeout receipt is valid only after the server deadline has elapsed.
+  const timeoutDeadline = Date.now() - 1000;
+  await fetch(
+    `http://127.0.0.1:9000/attemptQuestions/${test4User.localId}/${att4.id}/2/deadlineAt.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`,
+    {method: "PUT", headers: {"Content-Type": "application/json"}, body: JSON.stringify(timeoutDeadline)}
+  );
   const timeoutSubmitRes = await callFunction(submitUrl, test4User.idToken, {
     attemptId: att4.id,
     questionId: q2.id,
@@ -1363,7 +1369,7 @@ async function runTests() {
   assert.equal(prog13After.completedAttempts, prog13Before.completedAttempts);
   console.log("   -> learningProgress counters safely preserved across retries without double counting");
 
-  console.log("48. Daily Challenge across midnight uses original challenge date");
+  console.log("48. Daily Challenge across midnight expires under original challenge date with zero coins");
   const test15User = await createTestUser();
   await callFunction(ensureProfileUrl, test15User.idToken, {});
 
@@ -1421,8 +1427,10 @@ async function runTests() {
   const dailyRecord = await fetch(
     `http://127.0.0.1:9000/userDailyChallenges/${test15User.localId}/${yesterdayKey}.json?ns=englishbattleapp-8d764-default-rtdb&access_token=owner`
   ).then((r) => r.json());
-  assert.equal(dailyRecord.status, "completed");
-  console.log("   -> Daily Challenge completed across midnight correctly credited to original challenge date");
+  assert.equal(dailyRecord.status, "abandoned");
+  assert.equal(res15.body.result.result.outcome, "abandoned");
+  assert.equal(res15.body.result.result.coins, 0);
+  console.log("   -> Expired Daily Challenge settled under original date with zero coins");
 
   console.log("49. Cannot complete an already abandoned attempt");
   const test16User = await createTestUser();

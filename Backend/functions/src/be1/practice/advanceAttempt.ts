@@ -1,10 +1,13 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {
-  buildAttemptResponse,
+  dailyEndsAt,
+  isDailyExpired,
+  normalizeMode,
   ensureQuestionDeadline,
   reconcileAttemptCounters,
 } from "./attemptHelper";
+import {readAttemptResponse as buildAttemptResponse} from "./finalizeAttempt";
 
 const REQUEST_ID_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -58,6 +61,9 @@ export const advanceAttempt = onCall(
         throw new HttpsError("not-found", "Attempt not found or access denied.");
       }
       const attemptData = attemptSnap.val() as Record<string, unknown>;
+      if (isDailyExpired(attemptData)) {
+        return buildAttemptResponse(uid, attemptId, attemptData);
+      }
 
       // If attempt is already waiting or completed (all questions finished)
       if (attemptData.status === "waiting" || attemptData.status === "completed") {
@@ -141,6 +147,7 @@ export const advanceAttempt = onCall(
           if (att.status !== "active" || att.currentIndex !== currentIndex) {
             return att;
           }
+          if (isDailyExpired(att)) return att;
           if (att.advanceOperations && att.advanceOperations[requestId]) {
             return att;
           }
@@ -170,20 +177,26 @@ export const advanceAttempt = onCall(
       // Next question index
       const nextIndex = currentIndex + 1;
       const nextOpenedAt = now;
-      const nextDeadlineAt = nextOpenedAt + 30000;
+      const nextDeadlineAt = normalizeMode(attemptData.mode) === "DAILY" ?
+        Math.min(nextOpenedAt + 30000, dailyEndsAt(attemptData)) : nextOpenedAt + 30000;
 
       // 7. Update next question's openedAt & deadlineAt first for consistency
-      await adminDb
-        .ref(`attemptQuestions/${uid}/${attemptId}/${nextIndex}`)
-        .update({
-          openedAt: nextOpenedAt,
-          deadlineAt: nextDeadlineAt,
+      const nextQuestionRef = adminDb.ref(`attemptQuestions/${uid}/${attemptId}/${nextIndex}`);
+      const nextQuestion = (await nextQuestionRef.get()).val();
+      if (!nextQuestion) throw new HttpsError("internal", "Next question is missing.");
+      const nextQuestionTx = await nextQuestionRef
+        .transaction((question) => {
+          question ||= nextQuestion;
+          return {...question, openedAt: question.openedAt || nextOpenedAt,
+            deadlineAt: question.deadlineAt || nextDeadlineAt};
         });
+      const persistedDeadline = Number(nextQuestionTx.snapshot.val()?.deadlineAt) || nextDeadlineAt;
 
       // 8. Atomic advance of currentIndex & operation record
       const attTx = await attemptRef.transaction((att) => {
         if (!att) return att;
         if (att.status !== "active") return att;
+        if (isDailyExpired(att)) return att;
         if (att.currentIndex !== currentIndex) {
           // Delayed or concurrent worker: currentIndex has already moved! Abort to prevent skipping questions.
           return;
@@ -192,7 +205,7 @@ export const advanceAttempt = onCall(
           return att; // Already executed with this requestId
         }
         att.currentIndex = nextIndex;
-        att.deadlineAt = nextDeadlineAt;
+        att.deadlineAt = persistedDeadline;
         att.updatedAt = nextOpenedAt;
         if (!att.advanceOperations) att.advanceOperations = {};
         att.advanceOperations[requestId] = {
