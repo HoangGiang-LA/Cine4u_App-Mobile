@@ -22,7 +22,7 @@ class PasswordPolicyScreenTest {
         compose.setContent {
             EnglishBattleTheme {
                 AuthScreen(route, AuthState(initializing = false), {}, {},
-                    { _, _, _, password -> submissions.add(password) }, {}, {}, null)
+                    { _, _, _, password -> submissions.add(password) }, {}, {})
             }
         }
     }

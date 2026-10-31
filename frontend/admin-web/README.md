@@ -4,14 +4,20 @@ Frontend quản trị React + TypeScript + Vite, chạy độc lập với Gradl
 
 ## Chạy trên máy của bạn
 
-Mở terminal trong thư mục `frontend/admin-web`:
+Khi dùng Firebase Spark và chưa deploy Functions, mở PowerShell:
 
 ```powershell
-npm ci
-npm run dev
+cd "D:\visual studio\EnglishBattle-full\frontend\admin-web"
+npm.cmd run dev:local
 ```
 
-Mở **http://127.0.0.1:5173/**. Chỉ tài khoản được server xác nhận admin mới mở workspace; không có nút bỏ qua xác thực. Nếu đã cài thư viện, chỉ cần `npm run dev`. Cần chạy server tại `Backend/server` và BE1 Functions tương ứng.
+Lệnh này build Functions rồi chạy Functions Emulator tại `127.0.0.1:5001`, server xác nhận quyền tại `127.0.0.1:8080` và web tại **http://127.0.0.1:5173/**. Giữ terminal mở; nhấn `Ctrl+C` để dừng cả ba dịch vụ. Nếu cổng đang bận, dừng dịch vụ cũ trước khi chạy lại.
+
+Firebase Authentication và Realtime Database vẫn dùng tài khoản/dữ liệu thật của project hiện tại. `ensureUserProfile` chạy trên máy và có thể khởi tạo các bản ghi còn thiếu trong database thật. Đăng nhập bằng tài khoản đã có claim `admin: true`; quyền vẫn được kiểm tra bởi server. Các trang nghiệp vụ vẫn dùng dữ liệu mẫu. Chế độ này cần Internet cho Auth/Database, không yêu cầu deploy Functions hoặc nâng cấp Blaze.
+
+Chuẩn bị một lần: cài thư viện bằng `npm ci` trong `Backend/functions`, `Backend/server`, `frontend/verification` và `frontend/admin-web`. File `Backend/server/.env` phải có project/database đúng và `GOOGLE_APPLICATION_CREDENTIALS` trỏ tới khóa Admin SDK trên máy. Script đọc cấu hình này cho các tiến trình backend; không đưa khóa vào web. Không đặt `FIREBASE_AUTH_EMULATOR_HOST` hoặc `FIREBASE_DATABASE_EMULATOR_HOST` trong chế độ dùng Firebase thật.
+
+Khi đã deploy Functions, chạy server riêng bằng `npm start` trong `Backend/server`, rồi `npm run dev` trong `frontend/admin-web`. Chỉ `dev:local` bật `VITE_USE_FUNCTIONS_EMULATOR=true`; bản build production luôn gọi Functions trên Firebase.
 
 ## Firebase Web đã cấu hình
 

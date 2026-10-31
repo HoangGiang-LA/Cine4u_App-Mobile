@@ -59,45 +59,43 @@ export const getUserDashboard = onCall(
       const dateKey = getDateKey();
 
 
+      const [
+        accessSnap,
+        statsSnap,
+        walletSnap,
+        dailySnap,
+        progressSnap,
+        skillsSnap,
+        achievementsSnap,
+        userAchievementsSnap,
+        notificationsSnap,
+        ledgerSnap,
+        practiceHistorySnap,
+      ] = await Promise.all([
+        adminDb.ref(`accountAccess/${uid}`).get(),
+        adminDb.ref(`userStats/${uid}`).get(),
+        adminDb.ref(`wallets/${uid}`).get(),
+        adminDb.ref(`userDailyChallenges/${uid}/${dateKey}`).get(),
+        adminDb.ref(`learningProgress/${uid}`).get(),
+        adminDb.ref(`userSkillStats/${uid}`).get(),
+        adminDb.ref("achievements").get(),
+        adminDb.ref(`userAchievements/${uid}`).get(),
 
-const [
-  accessSnap,
-  statsSnap,
-  walletSnap,
-  dailySnap,
-  progressSnap,
-  skillsSnap,
-  achievementsSnap,
-  userAchievementsSnap,
-  notificationsSnap,
-  ledgerSnap,
-  practiceHistorySnap,
-] = await Promise.all([
-  adminDb.ref(`accountAccess/${uid}`).get(),
-  adminDb.ref(`userStats/${uid}`).get(),
-  adminDb.ref(`wallets/${uid}`).get(),
-  adminDb.ref(`userDailyChallenges/${uid}/${dateKey}`).get(),
-  adminDb.ref(`learningProgress/${uid}`).get(),
-  adminDb.ref(`userSkillStats/${uid}`).get(),
-  adminDb.ref("achievements").get(),
-  adminDb.ref(`userAchievements/${uid}`).get(),
+        adminDb.ref(`notifications/${uid}`)
+          .orderByChild("createdAt")
+          .limitToLast(50)
+          .get(),
 
-adminDb.ref(`notifications/${uid}`)
-  .orderByChild("createdAt")
-  .limitToLast(50)
-  .get(),
+        adminDb.ref(`coinLedger/${uid}`)
+          .orderByChild("createdAt")
+          .limitToLast(50)
+          .get(),
 
-adminDb.ref(`coinLedger/${uid}`)
-  .orderByChild("createdAt")
-  .limitToLast(50)
-  .get(),
-
-  adminDb.ref(`practiceAttempts/${uid}`)
-    .orderByChild("finishedAt")
-    .limitToLast(50)
-    .get(),
-]);
-
+        adminDb.ref(`practiceAttempts/${uid}`)
+          .orderByChild("finishedAt")
+          .limitToLast(50)
+          .get(),
+      ]);
 
 
       const access = accessSnap.val();
@@ -133,194 +131,194 @@ adminDb.ref(`coinLedger/${uid}`)
       }
 
 
-const progressData = progressSnap.val() ?? {};
-const progress: Record<string, number> = {};
+      const progressData = progressSnap.val() ?? {};
+      const progress: Record<string, number> = {};
 
-for (const [topicId, value] of Object.entries(progressData)) {
-  if (
-    value === null ||
+      for (const [topicId, value] of Object.entries(progressData)) {
+        if (
+          value === null ||
     typeof value !== "object" ||
     Array.isArray(value)
-  ) {
-    continue;
-  }
+        ) {
+          continue;
+        }
 
-  const item = value as Record<string, unknown>;
+        const item = value as Record<string, unknown>;
 
-  progress[topicId] = nonNegativeInt(
-    item.completedAttempts
-  );
-}
+        progress[topicId] = nonNegativeInt(
+          item.completedAttempts
+        );
+      }
 
-const skillNames: Record<string, string> = {
-  vocabulary: "Vocabulary",
-  grammar: "Grammar",
-  listening: "Listening",
-  reading: "Reading",
-};
+      const skillNames: Record<string, string> = {
+        vocabulary: "Vocabulary",
+        grammar: "Grammar",
+        listening: "Listening",
+        reading: "Reading",
+      };
 
-const skillsData = skillsSnap.val() ?? {};
+      const skillsData = skillsSnap.val() ?? {};
 
-const skills = Object.entries(skillsData).flatMap(
-  ([categoryId, value]) => {
-    if (!Object.prototype.hasOwnProperty.call(skillNames, categoryId)) {
-      return [];
-    }
-    if (
-      value === null ||
+      const skills = Object.entries(skillsData).flatMap(
+        ([categoryId, value]) => {
+          if (!Object.prototype.hasOwnProperty.call(skillNames, categoryId)) {
+            return [];
+          }
+          if (
+            value === null ||
       typeof value !== "object" ||
       Array.isArray(value)
-    ) {
-      return [];
-    }
+          ) {
+            return [];
+          }
 
-    const item = value as Record<string, unknown>;
+          const item = value as Record<string, unknown>;
 
-    const answered = nonNegativeInt(item.answeredCount);
-    const correct = Math.min(
-      nonNegativeInt(item.correctCount),
-      answered
-    );
+          const answered = nonNegativeInt(item.answeredCount);
+          const correct = Math.min(
+            nonNegativeInt(item.correctCount),
+            answered
+          );
 
-    return [{
-      id: categoryId,
-      name: skillNames[categoryId],
-      answered,
-      correct,
-    }];
-  }
-);
-const achievementDefinitions =
+          return [{
+            id: categoryId,
+            name: skillNames[categoryId],
+            answered,
+            correct,
+          }];
+        }
+      );
+      const achievementDefinitions =
   achievementsSnap.val() ?? {};
 
-const userAchievementData =
+      const userAchievementData =
   userAchievementsSnap.val() ?? {};
 
-const achievements = Object.entries(
-  achievementDefinitions
-).flatMap(([achievementId, value]) => {
-  if (
-    value === null ||
+      const achievements = Object.entries(
+        achievementDefinitions
+      ).flatMap(([achievementId, value]) => {
+        if (
+          value === null ||
     typeof value !== "object" ||
     Array.isArray(value)
-  ) {
-    return [];
-  }
+        ) {
+          return [];
+        }
 
-  const definition = value as Record<string, unknown>;
+        const definition = value as Record<string, unknown>;
 
-  // Chi hien thi thanh tich dang hoat dong
-  if (definition.status !== "active") {
-    return [];
-  }
+        // Chi hien thi thanh tich dang hoat dong
+        if (definition.status !== "active") {
+          return [];
+        }
 
-  const userRecord = userAchievementData[achievementId];
+        const userRecord = userAchievementData[achievementId];
 
-  const unlocked =
+        const unlocked =
     typeof userRecord?.unlockedAt === "number" &&
     Number.isSafeInteger(userRecord.unlockedAt) &&
     userRecord.unlockedAt > 0;
 
-  return [{
-    id: achievementId,
-    title: typeof definition.title === "string" ?
-      definition.title : achievementId,
-    description: typeof definition.description === "string" ?
-      definition.description : "",
-    unlocked,
-  }];
-});
+        return [{
+          id: achievementId,
+          title: typeof definition.title === "string" ?
+            definition.title : achievementId,
+          description: typeof definition.description === "string" ?
+            definition.description : "",
+          unlocked,
+        }];
+      });
 
-const allowedDestinations = [
-  "Achievements",
-  "Challenge",
-  "Practice",
-  "Battle",
-  "Leaderboard",
-  "History",
-  "Wallet",
-] as const;
+      const allowedDestinations = [
+        "Achievements",
+        "Challenge",
+        "Practice",
+        "Battle",
+        "Leaderboard",
+        "History",
+        "Wallet",
+      ] as const;
 
-const notificationsData = notificationsSnap.val() ?? {};
+      const notificationsData = notificationsSnap.val() ?? {};
 
-const notifications = Object.entries(notificationsData)
-  .flatMap(([notificationId, value]) => {
-    if (
-      value === null ||
+      const notifications = Object.entries(notificationsData)
+        .flatMap(([notificationId, value]) => {
+          if (
+            value === null ||
       typeof value !== "object" ||
       Array.isArray(value)
-    ) {
-      return [];
-    }
+          ) {
+            return [];
+          }
 
-    const item = value as Record<string, unknown>;
+          const item = value as Record<string, unknown>;
 
-    // Chi chap nhan destination thuoc hop dong FE.
-    const destination = item.targetType;
+          // Chi chap nhan destination thuoc hop dong FE.
+          const destination = item.targetType;
 
-    if (
-      typeof destination !== "string" ||
+          if (
+            typeof destination !== "string" ||
       !allowedDestinations.some((d) => d === destination)
-    ) {
-      return [];
-    }
+          ) {
+            return [];
+          }
 
-    return [{
-      id: notificationId,
-      title: typeof item.title === "string" ?
-        item.title : "",
-      body: typeof item.body === "string" ?
-        item.body : "",
-      destination,
-      read: typeof item.readAt === "number" &&
+          return [{
+            id: notificationId,
+            title: typeof item.title === "string" ?
+              item.title : "",
+            body: typeof item.body === "string" ?
+              item.body : "",
+            destination,
+            read: typeof item.readAt === "number" &&
         item.readAt > 0,
-      createdAt: nonNegativeInt(item.createdAt),
-    }];
-  })
-  .sort((a, b) => b.createdAt - a.createdAt)
-  .slice(0, 50);
+            createdAt: nonNegativeInt(item.createdAt),
+          }];
+        })
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 50);
 
-const ledgerData = ledgerSnap.val() ?? {};
+      const ledgerData = ledgerSnap.val() ?? {};
 
-const ledger = Object.entries(ledgerData)
-  .flatMap(([entryId, value]) => {
-    if (
-      value === null ||
+      const ledger = Object.entries(ledgerData)
+        .flatMap(([entryId, value]) => {
+          if (
+            value === null ||
       typeof value !== "object" ||
       Array.isArray(value)
-    ) {
-      return [];
-    }
+          ) {
+            return [];
+          }
 
-    const item = value as Record<string, unknown>;
+          const item = value as Record<string, unknown>;
 
-    if (
-      typeof item.delta !== "number" ||
+          if (
+            typeof item.delta !== "number" ||
       !Number.isSafeInteger(item.delta)
-    ) {
-      return [];
-    }
+          ) {
+            return [];
+          }
 
-    if (
-      typeof item.label !== "string" ||
+          if (
+            typeof item.label !== "string" ||
       item.label.trim().length === 0
-    ) {
-      return [];
-    }
+          ) {
+            return [];
+          }
 
-    const createdAt = nonNegativeInt(
-      item.createdAt
-    );
+          const createdAt = nonNegativeInt(
+            item.createdAt
+          );
 
-    return [{
-      id: entryId,
-      label: item.label,
-      delta: item.delta,
-      createdAt,
-    }];
-  })
-  .sort((a, b) => b.createdAt - a.createdAt)
-  .slice(0, 50);
+          return [{
+            id: entryId,
+            label: item.label,
+            delta: item.delta,
+            createdAt,
+          }];
+        })
+        .sort((a, b) => b.createdAt - a.createdAt)
+        .slice(0, 50);
 
 type HistoryResult = {
   attemptId: string;
@@ -415,29 +413,29 @@ const history = practiceHistory
   )
   .slice(0, 50);
 
-      return {
-        serverNow: Date.now(),
-        dashboard: {
-          rating: nonNegativeInt(stats.rating),
-          coins: nonNegativeInt(wallet.coinBalance),
-          wins: nonNegativeInt(stats.wins),
-          losses: nonNegativeInt(stats.losses),
-          draws: nonNegativeInt(stats.draws),
-          streak: nonNegativeInt(stats.winStreak),
+return {
+  serverNow: Date.now(),
+  dashboard: {
+    rating: nonNegativeInt(stats.rating),
+    coins: nonNegativeInt(wallet.coinBalance),
+    wins: nonNegativeInt(stats.wins),
+    losses: nonNegativeInt(stats.losses),
+    draws: nonNegativeInt(stats.draws),
+    streak: nonNegativeInt(stats.winStreak),
 
-          // Cac nhom du lieu se duoc bo sung o giai doan 2
-          progress,
-          daily: {
-            status: dailyStatus,
-            attemptId: daily?.attemptId ?? null,
-          },
-          history,
-          achievements,
-          notifications,
-          ledger,
-          skills,
-        },
-      };
+    // Cac nhom du lieu se duoc bo sung o giai doan 2
+    progress,
+    daily: {
+      status: dailyStatus,
+      attemptId: daily?.attemptId ?? null,
+    },
+    history,
+    achievements,
+    notifications,
+    ledger,
+    skills,
+  },
+};
     } catch (error) {
       if (error instanceof HttpsError) {
         throw error;

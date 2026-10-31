@@ -32,13 +32,21 @@ export const advanceAttempt = onCall(
     const attemptId = data?.attemptId;
     const requestId = data?.requestId;
 
-    if (!attemptId || typeof attemptId !== "string" || attemptId.trim().length === 0) {
+    if (
+      !attemptId ||
+      typeof attemptId !== "string" ||
+      attemptId.trim().length === 0
+    ) {
       throw new HttpsError("invalid-argument", "attemptId is required.");
     }
-    if (!requestId || typeof requestId !== "string" || !REQUEST_ID_REGEX.test(requestId)) {
+    if (
+      !requestId ||
+      typeof requestId !== "string" ||
+      !REQUEST_ID_REGEX.test(requestId)
+    ) {
       throw new HttpsError(
         "invalid-argument",
-        "requestId is required and must match ^[A-Za-z0-9_-]{1,128}$"
+        "requestId is required and must match ^[A-Za-z0-9_-]{1,128}$",
       );
     }
 
@@ -46,19 +54,28 @@ export const advanceAttempt = onCall(
       // 3. Verify user status
       const authUser = await adminAuth.getUser(uid);
       if (authUser.disabled) {
-        throw new HttpsError("permission-denied", "This account has been disabled.");
+        throw new HttpsError(
+          "permission-denied",
+          "This account has been disabled.",
+        );
       }
       const accessSnap = await adminDb.ref(`accountAccess/${uid}`).get();
       const access = accessSnap.val();
       if (access?.status !== "active") {
-        throw new HttpsError("permission-denied", "This account is not active.");
+        throw new HttpsError(
+          "permission-denied",
+          "This account is not active.",
+        );
       }
 
       // 4. Verify attempt existence and ownership
       const attemptRef = adminDb.ref(`practiceAttempts/${uid}/${attemptId}`);
       const attemptSnap = await attemptRef.get();
       if (!attemptSnap.exists()) {
-        throw new HttpsError("not-found", "Attempt not found or access denied.");
+        throw new HttpsError(
+          "not-found",
+          "Attempt not found or access denied.",
+        );
       }
       const attemptData = attemptSnap.val() as Record<string, unknown>;
       if (isDailyExpired(attemptData)) {
@@ -66,7 +83,10 @@ export const advanceAttempt = onCall(
       }
 
       // If attempt is already waiting or completed (all questions finished)
-      if (attemptData.status === "waiting" || attemptData.status === "completed") {
+      if (
+        attemptData.status === "waiting" ||
+        attemptData.status === "completed"
+      ) {
         return await buildAttemptResponse(uid, attemptId, attemptData);
       }
 
@@ -75,7 +95,8 @@ export const advanceAttempt = onCall(
       }
 
       // Check advance operation idempotency (atomic operation tracking)
-      const existingOps = (attemptData.advanceOperations as Record<string, unknown>) || {};
+      const existingOps =
+        (attemptData.advanceOperations as Record<string, unknown>) || {};
       if (existingOps[requestId]) {
         // This requestId already performed an advance on this attempt
         return await buildAttemptResponse(uid, attemptId, attemptData);
@@ -86,7 +107,9 @@ export const advanceAttempt = onCall(
       const now = Date.now();
 
       // 5. Check if current question is answered or expired
-      const answerRef = adminDb.ref(`attemptAnswers/${uid}/${attemptId}/${currentIndex}`);
+      const answerRef = adminDb.ref(
+        `attemptAnswers/${uid}/${attemptId}/${currentIndex}`,
+      );
       const answerSnap = await answerRef.get();
 
       if (!answerSnap.exists()) {
@@ -100,27 +123,30 @@ export const advanceAttempt = onCall(
           attemptId,
           currentIndex,
           qData,
-          attemptData
+          attemptData,
         );
 
         if (!deadlineAt || typeof deadlineAt !== "number" || deadlineAt <= 0) {
           throw new HttpsError(
             "failed-precondition",
-            "Question deadline is missing or invalid."
+            "Question deadline is missing or invalid.",
           );
         }
 
         if (now <= deadlineAt) {
           throw new HttpsError(
             "failed-precondition",
-            "Current question has not been answered and deadline has not expired."
+            "Current question has not been answered " +
+              "and deadline has not expired.",
           );
         }
 
         // Question expired: auto-record timeout exactly once
-        const currentQId = (qData.questionId as string) || (qData.id as string) || "";
+        const currentQId =
+          (qData.questionId as string) || (qData.id as string) || "";
         await answerRef.transaction((current) => {
-          if (current !== null) return; // already answered or timed out concurrently
+          // Already answered or timed out concurrently.
+          if (current !== null) return;
           return {
             questionId: currentQId,
             selectedOptionId: null,
@@ -143,7 +169,7 @@ export const advanceAttempt = onCall(
         // Boundary transition: set status to 'waiting'
         const attTx = await attemptRef.transaction((att) => {
           if (!att) return att;
-          // Strict validation: cannot transition if already not active OR currentIndex changed
+          // Only transition while active and still on the current question.
           if (att.status !== "active" || att.currentIndex !== currentIndex) {
             return att;
           }
@@ -164,33 +190,46 @@ export const advanceAttempt = onCall(
         });
 
         // Mirror to advanceOperations path for backward-compatibility
-        adminDb.ref(`advanceOperations/${uid}/${attemptId}/${requestId}`).set({
-          fromIndex: currentIndex,
-          status: "waiting",
-          completedAt: now,
-        }).catch(() => {});
+        adminDb
+          .ref(`advanceOperations/${uid}/${attemptId}/${requestId}`)
+          .set({
+            fromIndex: currentIndex,
+            status: "waiting",
+            completedAt: now,
+          })
+          .catch(() => {});
 
-        const updatedData = (attTx.snapshot.val() as Record<string, unknown>) || attemptData;
+        const updatedData =
+          (attTx.snapshot.val() as Record<string, unknown>) || attemptData;
         return await buildAttemptResponse(uid, attemptId, updatedData);
       }
 
       // Next question index
       const nextIndex = currentIndex + 1;
       const nextOpenedAt = now;
-      const nextDeadlineAt = normalizeMode(attemptData.mode) === "DAILY" ?
-        Math.min(nextOpenedAt + 30000, dailyEndsAt(attemptData)) : nextOpenedAt + 30000;
+      const nextDeadlineAt =
+        normalizeMode(attemptData.mode) === "DAILY" ?
+          Math.min(nextOpenedAt + 30000, dailyEndsAt(attemptData)) :
+          nextOpenedAt + 30000;
 
       // 7. Update next question's openedAt & deadlineAt first for consistency
-      const nextQuestionRef = adminDb.ref(`attemptQuestions/${uid}/${attemptId}/${nextIndex}`);
+      const nextQuestionRef = adminDb.ref(
+        `attemptQuestions/${uid}/${attemptId}/${nextIndex}`,
+      );
       const nextQuestion = (await nextQuestionRef.get()).val();
-      if (!nextQuestion) throw new HttpsError("internal", "Next question is missing.");
-      const nextQuestionTx = await nextQuestionRef
-        .transaction((question) => {
-          question ||= nextQuestion;
-          return {...question, openedAt: question.openedAt || nextOpenedAt,
-            deadlineAt: question.deadlineAt || nextDeadlineAt};
-        });
-      const persistedDeadline = Number(nextQuestionTx.snapshot.val()?.deadlineAt) || nextDeadlineAt;
+      if (!nextQuestion) {
+        throw new HttpsError("internal", "Next question is missing.");
+      }
+      const nextQuestionTx = await nextQuestionRef.transaction((question) => {
+        question ||= nextQuestion;
+        return {
+          ...question,
+          openedAt: question.openedAt || nextOpenedAt,
+          deadlineAt: question.deadlineAt || nextDeadlineAt,
+        };
+      });
+      const persistedDeadline =
+        Number(nextQuestionTx.snapshot.val()?.deadlineAt) || nextDeadlineAt;
 
       // 8. Atomic advance of currentIndex & operation record
       const attTx = await attemptRef.transaction((att) => {
@@ -198,7 +237,7 @@ export const advanceAttempt = onCall(
         if (att.status !== "active") return att;
         if (isDailyExpired(att)) return att;
         if (att.currentIndex !== currentIndex) {
-          // Delayed or concurrent worker: currentIndex has already moved! Abort to prevent skipping questions.
+          // A concurrent worker already advanced. Abort to avoid skipping.
           return;
         }
         if (att.advanceOperations && att.advanceOperations[requestId]) {
@@ -223,13 +262,17 @@ export const advanceAttempt = onCall(
       }
 
       // Mirror to advanceOperations path
-      adminDb.ref(`advanceOperations/${uid}/${attemptId}/${requestId}`).set({
-        fromIndex: currentIndex,
-        toIndex: nextIndex,
-        completedAt: nextOpenedAt,
-      }).catch(() => {});
+      adminDb
+        .ref(`advanceOperations/${uid}/${attemptId}/${requestId}`)
+        .set({
+          fromIndex: currentIndex,
+          toIndex: nextIndex,
+          completedAt: nextOpenedAt,
+        })
+        .catch(() => {});
 
-      const updatedData = (attTx.snapshot.val() as Record<string, unknown>) || attemptData;
+      const updatedData =
+        (attTx.snapshot.val() as Record<string, unknown>) || attemptData;
       return await buildAttemptResponse(uid, attemptId, updatedData);
     } catch (error) {
       if (error instanceof HttpsError) {
@@ -238,5 +281,5 @@ export const advanceAttempt = onCall(
       console.error("advanceAttempt error", {uid, attemptId, error});
       throw new HttpsError("internal", "Unable to advance attempt.");
     }
-  }
+  },
 );

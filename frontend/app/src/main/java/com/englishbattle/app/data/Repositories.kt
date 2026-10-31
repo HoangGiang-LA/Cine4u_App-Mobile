@@ -9,6 +9,7 @@ interface AuthRepository {
     suspend fun resetPassword(email: String)
     suspend fun updateName(name: String)
     suspend fun changeEmail(email: String, currentPassword: String)
+    suspend fun reloadUser()
     fun signOut()
 }
 interface CatalogRepository { fun observe(): Flow<Catalog> }

@@ -86,7 +86,7 @@ import kotlinx.coroutines.delay
 }
 
 @Composable fun MatchingScreen(state: com.englishbattle.app.data.LoadState<com.englishbattle.app.data.MatchTicket>, busy: Boolean,
-    error: String?, demo: Boolean, cancel: () -> Unit, start: () -> Unit, retry: () -> Unit, back: () -> Unit) {
+    error: String?, cancel: () -> Unit, start: () -> Unit, retry: () -> Unit, back: () -> Unit) {
     var confirmCancel by rememberSaveable { mutableStateOf(false) }
     androidx.activity.compose.BackHandler { confirmCancel = true }
     Screen("Thi đấu", { confirmCancel = true }) {
@@ -114,7 +114,6 @@ import kotlinx.coroutines.delay
         else Secondary("Hủy tìm trận") { if (!busy) confirmCancel = true }
         Spacer(Modifier.height(40.dp))
         Panel(color = Blue) { Text("♧  Mẹo nhỏ: Tập trung đọc kỹ câu hỏi!", fontSize = 12.sp, color = Color(0xFF7390AA)) }
-        if (demo) Small("Trận đấu và đối thủ ở chế độ này được mô phỏng trên thiết bị.")
     }
     if (confirmCancel) AlertDialog(onDismissRequest = { confirmCancel = false }, title = { Text("Hủy yêu cầu tìm trận?") },
         text = { Text("Nếu trận đã bắt đầu, máy chủ sẽ xử lý theo trạng thái hiện tại của trận.") },

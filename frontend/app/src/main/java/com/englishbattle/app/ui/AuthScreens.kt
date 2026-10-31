@@ -65,7 +65,7 @@ import com.englishbattle.app.data.PasswordPolicy
 }
 
 @Composable fun AuthScreen(route: Route, state: AuthState, go: (Route) -> Unit, back: () -> Unit,
-    submit: (Boolean, String, String, String) -> Unit, reset: (String) -> Unit, dismiss: () -> Unit, demo: (() -> Unit)?) {
+    submit: (Boolean, String, String, String) -> Unit, reset: (String) -> Unit, dismiss: () -> Unit) {
     var name by rememberSaveable(route) { mutableStateOf("") }
     var email by rememberSaveable(route) { mutableStateOf("") }
     // Passwords are never placed in saved-instance state or preferences.
@@ -131,11 +131,6 @@ import com.englishbattle.app.data.PasswordPolicy
         Spacer(Modifier.height(if (forgot) 120.dp else 32.dp))
         TextButton({ dismiss(); if (login) go(Route.Register) else back() }, enabled = !state.busy) {
             Text(if (login) "Chưa có tài khoản? Đăng ký" else "Quay lại Đăng nhập")
-        }
-        if (login && demo != null) {
-            HorizontalDivider(color = Line)
-            OutlinedButton(demo, enabled = !state.busy, modifier = Modifier.fillMaxWidth()) { Text("Khám phá bản mô phỏng") }
-            Small("Dữ liệu học thử được lưu riêng trên thiết bị. Không tạo tài khoản hoặc cộng điểm thật.")
         }
     }
     if (googleNotice) AlertDialog(onDismissRequest = { googleNotice = false }, title = { Text("Đăng nhập với Google") },

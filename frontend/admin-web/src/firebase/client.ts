@@ -10,7 +10,7 @@ import {
   type User,
 } from 'firebase/auth'
 import { getDatabase } from 'firebase/database'
-import { getFunctions, httpsCallable } from 'firebase/functions'
+import { connectFunctionsEmulator, getFunctions, httpsCallable } from 'firebase/functions'
 import { firebaseConfig } from './config'
 import { sessionFromClaims, type AuthGateway, type FirebaseSession } from './auth'
 import { verifyAdminAccess } from './backend'
@@ -21,7 +21,11 @@ export const firebaseApp =
 export const firebaseAuth = getAuth(firebaseApp)
 // Creating the SDK instance does not grant access or read/write data.
 export const firebaseDatabase = getDatabase(firebaseApp)
-const ensureUserProfile = httpsCallable(getFunctions(firebaseApp, 'asia-southeast1'), 'ensureUserProfile')
+const firebaseFunctions = getFunctions(firebaseApp, 'asia-southeast1')
+if (import.meta.env.DEV && import.meta.env.VITE_USE_FUNCTIONS_EMULATOR === 'true') {
+  connectFunctionsEmulator(firebaseFunctions, '127.0.0.1', 5001)
+}
+const ensureUserProfile = httpsCallable(firebaseFunctions, 'ensureUserProfile')
 
 async function session(user: User, refresh = false): Promise<FirebaseSession> {
   const token = await getIdTokenResult(user, refresh)

@@ -19,14 +19,13 @@ import androidx.lifecycle.LifecycleEventObserver
 import androidx.lifecycle.compose.LocalLifecycleOwner
 import androidx.lifecycle.compose.collectAsStateWithLifecycle
 import androidx.lifecycle.viewmodel.compose.viewModel
-import com.englishbattle.app.BuildConfig
 import com.englishbattle.app.data.*
 
 enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, Vocabulary, Grammar,
     Listening, Reading, Quiz, PracticeResult, Battle, Matching, BattleQuiz, BattleResult, History,
     Leaderboard, Progress, Profile, Achievements, Notifications, Settings, Review, Test, PracticeIntro, PrivateRoom, Wallet, LearningHistory }
 
-@Composable fun EnglishBattleApp(initial: String = "Splash", startInDemo: Boolean = false,
+@Composable fun EnglishBattleApp(initial: String = "Splash",
     auth: AuthViewModel = viewModel(), catalog: CatalogViewModel = viewModel(),
     userData: UserDataViewModel = viewModel(), play: PlayViewModel = viewModel(),
     access: AccountAccessViewModel = viewModel()) {
@@ -36,22 +35,25 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
     val onlineFlow = remember(context) { connectionFlow(context) }
     val online by onlineFlow.collectAsStateWithLifecycle(initialValue = true)
     val identity = authState.user
-    val sessionKey = identity?.let { "${authState.mode.name}-${it.uid}" }
+    val sessionKey = identity?.let { "FIREBASE-${it.uid}" }
     val ready = sessionKey != null && accessState.key == sessionKey && accessState.ready
-    LaunchedEffect(startInDemo) { if (BuildConfig.DEBUG && startInDemo) auth.enterDemo() }
     LaunchedEffect(sessionKey) {
-        if (identity != null) access.connect(authState.mode, identity.uid) else access.clear()
+        if (identity != null) access.connect(identity.uid) else access.clear()
     }
     LaunchedEffect(sessionKey, ready) {
         if (identity != null && ready) {
-            catalog.connect(authState.mode); userData.connect(authState.mode); play.connect(authState.mode, identity.uid)
+            catalog.connect(); userData.connect(); play.connect(identity.uid)
         } else { catalog.clear(); userData.clear(); play.clear() }
     }
     val owner = LocalLifecycleOwner.current
+    LaunchedEffect(online, ready) { if (online && ready) auth.refreshProfile() }
     DisposableEffect(owner, sessionKey, ready) {
         val observer = LifecycleEventObserver { _, event ->
             if (event == Lifecycle.Event.ON_STOP) play.setForeground(false)
-            if (event == Lifecycle.Event.ON_START) { play.setForeground(true); if (ready) userData.refresh() }
+            if (event == Lifecycle.Event.ON_START) {
+                play.setForeground(true)
+                if (ready) { auth.refreshProfile(); userData.refresh() }
+            }
         }
         owner.lifecycle.addObserver(observer)
         onDispose { owner.lifecycle.removeObserver(observer) }
@@ -65,7 +67,7 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
                 BackHandler(route !in listOf(Route.Splash, Route.Login)) { if (!authState.busy) { auth.dismiss(); route = Route.Login } }
                 if (route == Route.Splash) SplashScreen { route = Route.Login }
                 else AuthScreen(route, authState, { auth.dismiss(); route = it }, { route = Route.Login },
-                    auth::submit, auth::reset, auth::dismiss, if (BuildConfig.DEBUG) auth::enterDemo else null)
+                    auth::submit, auth::reset, auth::dismiss)
             } else if (!ready) {
                 Column(Modifier.fillMaxWidth().padding(24.dp), verticalArrangement = Arrangement.spacedBy(16.dp)) {
                     val error = accessState.error?.takeIf { accessState.key == sessionKey }
@@ -77,7 +79,6 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
                 SignedInApp(identity, authState, initial, catalog, userData, play, auth)
             }
         }
-        if (identity != null && authState.mode == DataMode.DEMO) Text("Mô phỏng", Modifier.align(Alignment.TopEnd).padding(end = 8.dp), color = Muted, fontSize = 9.sp)
     }
 }
 
@@ -100,7 +101,7 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
     var resultId by rememberSaveable { mutableStateOf<String?>(null) }
     var cancelRequested by rememberSaveable { mutableStateOf(false) }
     var enterRequested by rememberSaveable { mutableStateOf(false) }
-    val preferenceKey = "english_battle_settings_${authState.mode.name}_${user.uid}"
+    val preferenceKey = "english_battle_settings_FIREBASE_${user.uid}"
     val context = LocalContext.current
     val notificationPrefs = remember(preferenceKey) { context.getSharedPreferences(preferenceKey, android.content.Context.MODE_PRIVATE) }
     val snackbar = remember { SnackbarHostState() }
@@ -162,7 +163,7 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
                 Route.Review -> ReviewScreen(result.data, ::back)
                 Route.Battle -> BattleScreen(dashboard, busy, ::back, { find(it) }, { go(Route.History) }, { go(Route.PrivateRoom) })
                 Route.PrivateRoom -> PrivateRoomScreen(busy, ::back, { find("create") }, { find("join", it) })
-                Route.Matching -> MatchingScreen(ticket, busy, playError, authState.mode == DataMode.DEMO,
+                Route.Matching -> MatchingScreen(ticket, busy, playError,
                     { cancelRequested = true; play.cancelMatch() }, { enterRequested = true; play.enterMatch() }, play::retryMatch, { root(Route.Battle) })
                 Route.History, Route.LearningHistory -> HistoryScreen(dashboard, ::back, dataVM::refresh, { id -> resultId = id; play.viewResult(id); go(Route.PracticeResult) }, route == Route.LearningHistory)
                 Route.Leaderboard -> LeaderboardScreen(board, dataVM.period, ::back, { dataVM.loadBoard(it) }, { dataVM.loadBoard(dataVM.period, true) })
@@ -174,7 +175,7 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
                     val target = runCatching { Route.valueOf(destination) }.getOrDefault(Route.Notifications)
                     if (target in listOf(Route.Achievements, Route.Challenge, Route.Practice, Route.Battle, Route.Leaderboard, Route.History, Route.Wallet)) go(target)
                 }
-                Route.Settings -> SettingsScreen(user, authState.mode, preferenceKey, authState.busy, ::back, authVM::signOut, authVM::changeEmail)
+                Route.Settings -> SettingsScreen(user, preferenceKey, authState.busy, ::back, authVM::signOut, authVM::changeEmail)
                 else -> HomeScreen(user.name, dashboard, attempt.data, play.activeId != null, ticket.data != null, ::go, { resume() }, dataVM::refresh)
             }
         }

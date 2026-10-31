@@ -1,15 +1,18 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
-import {
-  WireQuestion,
-  getDateKey,
-  normalizeMode,
-} from "./attemptHelper";
+import {WireQuestion, getDateKey, normalizeMode} from "./attemptHelper";
 import {readAttemptResponse as buildAttemptResponse} from "./finalizeAttempt";
 import {startDailyAttempt} from "./startDailyAttempt";
+import {
+  contentId,
+  playableQuestion,
+  publishedTopic,
+  record,
+} from "./contentValidation";
 
 const QUESTION_TIME_LIMIT_SECONDS = 30;
-const OPERATION_LEASE_MS = 10_000; // 10s lease timeout to recover stale pending operations
+// Recover stale pending operations after a ten-second lease.
+const OPERATION_LEASE_MS = 10_000;
 const REQUEST_ID_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
 
 const QUESTION_COUNTS: Record<string, number> = {
@@ -18,22 +21,10 @@ const QUESTION_COUNTS: Record<string, number> = {
   DAILY: 5,
 };
 
-interface QuestionMeta {
-  categoryId: string;
-  topicId: string;
-  currentVersion: string;
-  status: string;
-}
-
-interface VersionContent {
-  prompt: string;
-  options: Record<string, {text: string; order: number}>;
-  passage?: string;
-  audioText?: string;
-}
-
 /**
  * Shuffle array using Fisher-Yates.
+ * @param {Array} arr Input array to copy and shuffle.
+ * @return {Array} Shuffled copy of the input.
  */
 function shuffle<T>(arr: T[]): T[] {
   const a = [...arr];
@@ -45,86 +36,91 @@ function shuffle<T>(arr: T[]): T[] {
 }
 
 /**
- * Build a wire-format question (no correct answer exposed).
- */
-function buildWireQuestion(
-  questionId: string,
-  meta: QuestionMeta,
-  content: VersionContent
-): WireQuestion {
-  const optionEntries = Object.entries(content.options)
-    .sort(([, a], [, b]) => a.order - b.order);
-
-  return {
-    id: questionId,
-    version: meta.currentVersion,
-    categoryId: meta.categoryId,
-    topicId: meta.topicId,
-    prompt: content.prompt,
-    options: optionEntries.map(([optId, opt]) => ({
-      id: optId,
-      text: opt.text,
-    })),
-    passage: content.passage ?? "",
-    audioText: content.audioText ?? "",
-  };
-}
-
-/**
  * Select random published questions filtered by topicId
  * (for PRACTICE) or unfiltered (for TEST/DAILY).
+ * @param {string} mode Mode selecting the question count and pool.
+ * @param {string|null} topicId Topic filter for practice mode.
  */
 async function selectQuestions(
   mode: string,
-  topicId: string | null
+  topicId: string | null,
 ): Promise<WireQuestion[]> {
   const count = QUESTION_COUNTS[mode];
   if (!count) {
+    throw new HttpsError("invalid-argument", `Unsupported mode: ${mode}`);
+  }
+
+  const [categories, topics, lessons, assets] = await Promise.all(
+    ["categories", "topics", "lessons", "contentAssets"]
+      .map((path) => adminDb.ref(path).get()),
+  );
+  const relations = {
+    categories: record(categories.val()),
+    topics: record(topics.val()),
+    lessons: record(lessons.val()),
+    assets: record(assets.val()),
+  };
+  if (mode === "PRACTICE" && !publishedTopic(topicId, relations)) {
     throw new HttpsError(
-      "invalid-argument",
-      `Unsupported mode: ${mode}`
+      "failed-precondition",
+      "Practice topic or its skill is missing or not published.",
     );
   }
 
   let pool: Record<string, unknown> = {};
   if (mode !== "PRACTICE") {
     const templateId = mode === "TEST" ? "test_mixed" : "daily_mixed";
-    const template = (await adminDb.ref(`quizTemplates/${templateId}`).get()).val();
-    if (!template || template.status !== "published" ||
-        normalizeMode(template.mode) !== mode || template.questionCount !== count ||
-        template.questionTimeLimitSeconds !== 30 || template.completionCoins !== 2 ||
-        template.completionPolicy !== "all_questions_resolved") {
-      throw new HttpsError("failed-precondition", "Learning template is missing or invalid.");
+    const template = (
+      await adminDb.ref(`quizTemplates/${templateId}`).get()
+    ).val();
+    if (
+      !template ||
+      template.status !== "published" ||
+      normalizeMode(template.mode) !== mode ||
+      template.questionCount !== count ||
+      template.questionTimeLimitSeconds !== 30 ||
+      template.completionCoins !== 2 ||
+      template.completionPolicy !== "all_questions_resolved"
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Learning template is missing or invalid.",
+      );
     }
     pool = template.questionPool || {};
-    if (pool.scope !== "all_categories" && typeof pool.categoryId !== "string") {
-      throw new HttpsError("failed-precondition", "Question pool scope is not configured.");
+    if (
+      pool.scope !== "all_categories" &&
+      typeof pool.categoryId !== "string"
+    ) {
+      throw new HttpsError(
+        "failed-precondition",
+        "Question pool scope is not configured.",
+      );
     }
   }
 
-  // Load all questions and filter published questions in memory (avoids missing .indexOn)
-  const questionsSnap = await adminDb
-    .ref("questions")
-    .get();
+  // Filter published questions in memory without requiring an .indexOn entry.
+  const questionsSnap = await adminDb.ref("questions").get();
 
   if (!questionsSnap.exists()) {
     throw new HttpsError(
       "failed-precondition",
-      "Not enough questions available."
+      "Not enough questions available.",
     );
   }
 
   const allQuestions: Array<{
-    id: string; meta: QuestionMeta;
+    id: string;
+    meta: Record<string, unknown>;
   }> = [];
 
   questionsSnap.forEach((child) => {
-    const meta = child.val() as QuestionMeta;
+    const meta = record(child.val());
     if (meta.status !== "published") return;
-    if (!meta.currentVersion) return;
+    if (!contentId(meta.currentVersion) ||
+        !publishedTopic(meta.topicId, relations)) return;
     if (pool.categoryId && meta.categoryId !== pool.categoryId) return;
     if (pool.topicId && meta.topicId !== pool.topicId) return;
-    if (!["vocabulary", "grammar", "listening", "reading"].includes(meta.categoryId)) return;
 
     // PRACTICE must filter by topicId
     if (mode === "PRACTICE" && topicId) {
@@ -137,7 +133,7 @@ async function selectQuestions(
   if (allQuestions.length < count) {
     throw new HttpsError(
       "failed-precondition",
-      "Not enough questions available for this topic."
+      "Not enough questions available for this topic.",
     );
   }
 
@@ -152,17 +148,18 @@ async function selectQuestions(
       adminDb.ref(`questionVersions/${id}/${meta.currentVersion}`).get(),
       adminDb.ref(`questionAnswers/${id}/${meta.currentVersion}`).get(),
     ]);
-    const content = versionSnap.val() as VersionContent | null;
-    const correctOptionId = answerSnap.val()?.correctOptionId;
-    if (!content || typeof content.prompt !== "string" || !content.prompt.trim() ||
-        !content.options || Object.keys(content.options).length < 2 ||
-        Object.values(content.options).some((option) => !option || typeof option.text !== "string") ||
-        typeof correctOptionId !== "string" || !content.options[correctOptionId]) continue;
-    wireQuestions.push(buildWireQuestion(id, meta, content));
+    const question = playableQuestion(
+      id, meta, versionSnap.val(), answerSnap.val(), relations,
+    );
+    if (!question) continue;
+    wireQuestions.push(question);
     if (wireQuestions.length === count) break;
   }
   if (wireQuestions.length !== count) {
-    throw new HttpsError("failed-precondition", "Not enough questions with valid content and answers.");
+    throw new HttpsError(
+      "failed-precondition",
+      "Not enough questions with valid content and answers.",
+    );
   }
 
   return wireQuestions;
@@ -177,10 +174,7 @@ export const startAttempt = onCall(
     // 1. Auth check
     const uid = request.auth?.uid;
     if (!uid) {
-      throw new HttpsError(
-        "unauthenticated",
-        "You must sign in first."
-      );
+      throw new HttpsError("unauthenticated", "You must sign in first.");
     }
 
     const data = request.data as {
@@ -193,36 +187,39 @@ export const startAttempt = onCall(
     const topicId = data?.topicId ?? null;
     const requestId = data?.requestId;
 
-    if (topicId !== null && (typeof topicId !== "string" || !topicId.trim())) {
-      throw new HttpsError("invalid-argument", "topicId must be a non-empty string or null.");
+    if (topicId !== null && !contentId(topicId)) {
+      throw new HttpsError(
+        "invalid-argument",
+        "topicId must be a valid database key or null.",
+      );
     }
 
     // 2. Validate input format and safe key characters
     if (!mode || !requestId) {
       throw new HttpsError(
         "invalid-argument",
-        "mode and requestId are required."
+        "mode and requestId are required.",
       );
     }
 
     if (typeof requestId !== "string" || !REQUEST_ID_REGEX.test(requestId)) {
       throw new HttpsError(
         "invalid-argument",
-        "requestId must be a string matching ^[A-Za-z0-9_-]{1,128}$"
+        "requestId must be a string matching ^[A-Za-z0-9_-]{1,128}$",
       );
     }
 
     if (!["PRACTICE", "TEST", "DAILY"].includes(mode)) {
       throw new HttpsError(
         "invalid-argument",
-        "Invalid mode for this endpoint."
+        "Invalid mode for this endpoint.",
       );
     }
 
     if (mode === "PRACTICE" && (!topicId || topicId.length === 0)) {
       throw new HttpsError(
         "invalid-argument",
-        "topicId is required for PRACTICE mode."
+        "topicId is required for PRACTICE mode.",
       );
     }
 
@@ -236,19 +233,17 @@ export const startAttempt = onCall(
       if (authUser.disabled) {
         throw new HttpsError(
           "permission-denied",
-          "This account has been disabled."
+          "This account has been disabled.",
         );
       }
 
-      const accessSnap = await adminDb
-        .ref(`accountAccess/${uid}`)
-        .get();
+      const accessSnap = await adminDb.ref(`accountAccess/${uid}`).get();
       const access = accessSnap.val();
 
       if (access?.status !== "active") {
         throw new HttpsError(
           "permission-denied",
-          "This account is not active."
+          "This account is not active.",
         );
       }
 
@@ -260,7 +255,7 @@ export const startAttempt = onCall(
       let existingAttemptId: string | null = null;
       let existingAttemptData: Record<string, unknown> | null = null;
 
-      // 4a. Fast-path: check if operation already completed or has persisted attempt data
+      // 4a. Reuse completed operations or previously persisted attempt data.
       const opSnap = await opRef.get();
       if (opSnap.exists()) {
         const opVal = opSnap.val() as Record<string, unknown>;
@@ -271,7 +266,7 @@ export const startAttempt = onCall(
           if (opMode !== mode.toUpperCase() || opTopic !== (topicId ?? "")) {
             throw new HttpsError(
               "invalid-argument",
-              "requestId has already been used with different parameters."
+              "requestId has already been used with different parameters.",
             );
           }
 
@@ -285,7 +280,9 @@ export const startAttempt = onCall(
             existingAttemptData = aSnap.val() as Record<string, unknown>;
             if (opVal.status === "committing") {
               // Ensure operation status is updated to completed
-              await opRef.update({status: "completed", completedAt: Date.now()}).catch(() => {});
+              await opRef
+                .update({status: "completed", completedAt: Date.now()})
+                .catch(() => {});
             }
           }
         }
@@ -322,20 +319,28 @@ export const startAttempt = onCall(
           // Validate parameter consistency on attempt record
           const attMode = normalizeMode(existingAttemptData.mode);
           const attTopic = (existingAttemptData.topicId as string) || "";
-          if (attMode !== mode.toUpperCase() ||
-              (mode === "PRACTICE" && attTopic !== (topicId ?? ""))) {
+          if (
+            attMode !== mode.toUpperCase() ||
+            (mode === "PRACTICE" && attTopic !== (topicId ?? ""))
+          ) {
             throw new HttpsError(
               "invalid-argument",
-              "requestId has already been used with different parameters."
+              "requestId has already been used with different parameters.",
             );
           }
-          return buildAttemptResponse(uid, existingAttemptId, existingAttemptData);
+          return buildAttemptResponse(
+            uid,
+            existingAttemptId,
+            existingAttemptData,
+          );
         }
       }
 
       // 4c. Atomic reservation with lease TTL and deterministic attempt ID
-      const assignedAttemptId = mode === "DAILY" ? `daily_${getDateKey(now)}` :
-        adminDb.ref(`practiceAttempts/${uid}`).push().key!;
+      const assignedAttemptId =
+        mode === "DAILY" ?
+          `daily_${getDateKey(now)}` :
+          adminDb.ref(`practiceAttempts/${uid}`).push().key!;
       const txResult = await opRef.transaction((current) => {
         if (current !== null) {
           // If already completed, do not overwrite
@@ -344,7 +349,9 @@ export const startAttempt = onCall(
           }
           // If pending or committing, check if active lease has expired
           const lockTime =
-            (current.status === "committing" ? current.committedAt : current.createdAt) || 0;
+            (current.status === "committing" ?
+              current.committedAt :
+              current.createdAt) || 0;
           if (
             (current.status === "pending" || current.status === "committing") &&
             typeof lockTime === "number" &&
@@ -353,7 +360,7 @@ export const startAttempt = onCall(
             return;
           }
         }
-        // Deterministic attemptId: preserve existing attemptId when reclaiming a stale lease
+        // Preserve the attemptId when reclaiming a stale lease.
         return {
           status: "pending",
           workerToken,
@@ -372,15 +379,21 @@ export const startAttempt = onCall(
           const waitingOp = (await opRef.get()).val();
           const waitAttemptId = waitingOp?.attemptId as string | undefined;
           if (waitAttemptId) {
-            const aSnap = await adminDb.ref(`practiceAttempts/${uid}/${waitAttemptId}`).get();
+            const aSnap = await adminDb
+              .ref(`practiceAttempts/${uid}/${waitAttemptId}`)
+              .get();
             if (aSnap.exists()) {
               const aData = aSnap.val() as Record<string, unknown>;
               const attMode = normalizeMode(aData.mode);
               const attTopic = (aData.topicId as string) || "";
-              if (attMode !== mode.toUpperCase() ||
-                  (mode === "PRACTICE" && attTopic !== (topicId ?? ""))) {
-                throw new HttpsError("invalid-argument",
-                  "requestId has already been used with different parameters.");
+              if (
+                attMode !== mode.toUpperCase() ||
+                (mode === "PRACTICE" && attTopic !== (topicId ?? ""))
+              ) {
+                throw new HttpsError(
+                  "invalid-argument",
+                  "requestId has already been used with different parameters.",
+                );
               }
               return buildAttemptResponse(uid, waitAttemptId, aData);
             }
@@ -390,22 +403,30 @@ export const startAttempt = onCall(
 
         throw new HttpsError(
           "already-exists",
-          "Attempt creation is already in progress."
+          "Attempt creation is already in progress.",
         );
       }
 
       // Successfully acquired lease
       acquiredLock = true;
-      const attemptId = txResult.snapshot.val()?.attemptId || assignedAttemptId!;
+      const attemptId =
+        txResult.snapshot.val()?.attemptId || assignedAttemptId!;
 
       if (mode === "DAILY") {
         const response = await startDailyAttempt(
-          uid, attemptId, requestId, () => selectQuestions(mode, null)
+          uid,
+          attemptId,
+          requestId,
+          () => selectQuestions(mode, null),
         );
         await opRef.transaction((current) => {
           if (current?.workerToken !== workerToken) return;
-          return {...current, status: "completed", attemptId: response.attempt.id,
-            completedAt: Date.now()};
+          return {
+            ...current,
+            status: "completed",
+            attemptId: response.attempt.id,
+            completedAt: Date.now(),
+          };
         });
         return response;
       }
@@ -413,12 +434,12 @@ export const startAttempt = onCall(
       // 6. Select questions
       const questions = await selectQuestions(mode, topicId);
 
-      // 7. Fencing verification: atomically ensure lease is still owned by this worker
+      // 7. Verify atomically that this worker still owns the lease.
       const committingTime = Date.now();
       const commitLockTx = await opRef.transaction((current) => {
         if (current === null) {
-          // If local cache is null, return optimistic candidate matching our workerToken;
-          // Firebase RTDB server will compare against true server state and re-run with actual data.
+          // Optimistically use our workerToken when the local cache is empty.
+          // RTDB compares server state and retries with the actual data.
           return {
             status: "committing",
             workerToken,
@@ -426,8 +447,12 @@ export const startAttempt = onCall(
             committedAt: committingTime,
           };
         }
-        if (current.workerToken !== workerToken || current.status !== "pending") {
-          return; // FENCED OUT: actual server state shows lease was overtaken by another worker
+        if (
+          current.workerToken !== workerToken ||
+          current.status !== "pending"
+        ) {
+          // Another worker owns the lease according to server state.
+          return;
         }
         return {
           ...current,
@@ -438,11 +463,12 @@ export const startAttempt = onCall(
 
       if (!commitLockTx.committed) {
         // Lease expired during question selection and was overtaken.
-        // MUST NOT write attempt data to avoid producing an orphan/second attempt.
-        acquiredLock = false; // Do not cleanup in catch, lock belongs to new worker!
+        // Avoid creating a second attempt after losing the lease.
+        // The new owner is responsible for cleanup.
+        acquiredLock = false;
         throw new HttpsError(
           "aborted",
-          "Operation lease expired and was overtaken by another request."
+          "Operation lease expired and was overtaken by another request.",
         );
       }
 
@@ -452,11 +478,13 @@ export const startAttempt = onCall(
         .get();
       if (attemptCheck.exists()) {
         const persistedData = attemptCheck.val() as Record<string, unknown>;
-        await opRef.update({status: "completed", completedAt: Date.now()}).catch(() => {});
+        await opRef
+          .update({status: "completed", completedAt: Date.now()})
+          .catch(() => {});
         return buildAttemptResponse(uid, attemptId, persistedData);
       }
 
-      // 8. Capture fresh server-side open timestamp right before writing to database
+      // 8. Capture a fresh server timestamp immediately before writing.
       const openedAt = Date.now();
       const deadlineAt = openedAt + QUESTION_TIME_LIMIT_SECONDS * 1000;
       const questionCount = QUESTION_COUNTS[mode]!;
@@ -464,7 +492,7 @@ export const startAttempt = onCall(
       const attemptRecord: Record<string, unknown> = {
         mode: mode.toLowerCase(),
         ...(mode === "TEST" ? {templateId: "test_mixed"} : {}),
-        categoryId: mode === "PRACTICE" ? questions[0]?.categoryId ?? "" : "",
+        categoryId: mode === "PRACTICE" ? (questions[0]?.categoryId ?? "") : "",
         topicId: topicId ?? "",
         status: "active",
         startedAt: openedAt,
@@ -533,20 +561,22 @@ export const startAttempt = onCall(
         },
       };
     } catch (error) {
-      // Safe ownership-checked cleanup: ONLY remove if this worker acquired the lock
-      // and the lock STILL belongs to this worker in pending state
+      // Clean up only if this worker acquired and still owns the pending lock.
       if (opKey && acquiredLock) {
         try {
           await adminDb.ref(opKey).transaction((current) => {
             if (current === null) {
               return null;
             }
-            if (current.workerToken === workerToken && current.status === "pending") {
+            if (
+              current.workerToken === workerToken &&
+              current.status === "pending"
+            ) {
               return null; // Safely delete only owned pending lock
             }
             return; // Overtaken or completed; do not touch
           });
-        } catch (_) {
+        } catch {
           // ignore cleanup errors
         }
       }
@@ -557,10 +587,7 @@ export const startAttempt = onCall(
 
       console.error("startAttempt failed", {uid, error});
 
-      throw new HttpsError(
-        "internal",
-        "Unable to start attempt."
-      );
+      throw new HttpsError("internal", "Unable to start attempt.");
     }
-  }
+  },
 );

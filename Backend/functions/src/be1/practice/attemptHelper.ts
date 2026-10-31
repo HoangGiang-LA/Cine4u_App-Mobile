@@ -59,20 +59,26 @@ export interface WireAttempt {
 }
 
 /**
- * Build reviews for finalized attempts using trusted backend questionAnswers and attemptReviews.
+ * Build reviews using trusted questionAnswers and cached attemptReviews.
+ * @param {string} uid Owner of the attempt.
+ * @param {string} attemptId Attempt to review.
+ * @param {string} status Current attempt status.
+ * @param {WireQuestion[]} questions Questions selected for the attempt.
+ * @param {object} answersRecord Previously loaded answers, if available.
  */
 export async function buildAttemptReviews(
   uid: string,
   attemptId: string,
   status: string,
   questions: WireQuestion[],
-  answersRecord?: Record<string, Record<string, unknown>> | null
+  answersRecord?: Record<string, Record<string, unknown>> | null,
 ): Promise<WireReview[]> {
-  // 1. Terminal state enforcement: reviews containing correct answers must NEVER be generated or cached for active/waiting attempts
+  // Only terminal attempts may generate or cache reviews with correct answers.
   if (status !== "completed" && status !== "abandoned") {
     throw new HttpsError(
       "failed-precondition",
-      "Reviews can only be generated or cached for completed or abandoned attempts."
+      "Reviews can only be generated or cached " +
+        "for completed or abandoned attempts.",
     );
   }
 
@@ -105,7 +111,7 @@ export async function buildAttemptReviews(
     const ans =
       answers[key] ||
       Object.values(answers).find(
-        (a) => a && (a as Record<string, unknown>).questionId === q.id
+        (a) => a && (a as Record<string, unknown>).questionId === q.id,
       );
 
     let pickedId: string | null = null;
@@ -118,8 +124,12 @@ export async function buildAttemptReviews(
     let correctId = (existing?.correctOptionId as string) || "";
     let explanation = (existing?.explanation as string) || "";
 
-    // If not cached or if cached record had an empty/invalid correctOptionId, load from trusted questionAnswers
-    if (!correctId || typeof correctId !== "string" || correctId.trim().length === 0) {
+    // Load trusted answers when the cached correctOptionId is invalid.
+    if (
+      !correctId ||
+      typeof correctId !== "string" ||
+      correctId.trim().length === 0
+    ) {
       const qaSnap = await adminDb
         .ref(`questionAnswers/${q.id}/${q.version}`)
         .get();
@@ -127,7 +137,8 @@ export async function buildAttemptReviews(
       if (!qaSnap.exists()) {
         throw new HttpsError(
           "internal",
-          `Trusted question answer configuration is missing on server for ${q.id}/${q.version}`
+          "Trusted question answer configuration is missing on server for " +
+            `${q.id}/${q.version}`,
         );
       }
 
@@ -136,23 +147,30 @@ export async function buildAttemptReviews(
       explanation = typeof qa.explanation === "string" ? qa.explanation : "";
     }
 
-    // STRICT VALIDATION: Never return or cache reviews with an empty or invalid correctId
-    if (!correctId || typeof correctId !== "string" || correctId.trim().length === 0) {
+    // Never return or cache reviews with an empty or invalid correctId.
+    if (
+      !correctId ||
+      typeof correctId !== "string" ||
+      correctId.trim().length === 0
+    ) {
       throw new HttpsError(
         "internal",
-        `Trusted question answer configuration is invalid or missing correctOptionId for ${q.id}/${q.version}`
+        "Trusted question answer configuration is invalid or missing " +
+          `correctOptionId for ${q.id}/${q.version}`,
       );
     }
 
-    const optionExists = q.options && q.options.some((opt) => opt.id === correctId);
+    const optionExists =
+      q.options && q.options.some((opt) => opt.id === correctId);
     if (!optionExists) {
       throw new HttpsError(
         "internal",
-        `Correct answer ${correctId} does not match any valid option for question ${q.id}/${q.version}`
+        `Correct answer ${correctId} does not match any valid option ` +
+          `for question ${q.id}/${q.version}`,
       );
     }
 
-    // Only stage for caching if verified valid and not already in existingReviews
+    // Cache only verified reviews that are absent from existingReviews.
     if (!existingReviews[key]) {
       newReviewsToPersist[key] = {
         questionId: q.id,
@@ -193,24 +211,27 @@ export async function buildAttemptReviews(
   return reviews;
 }
 
+/**
+ * Assemble the client response from stored attempt records.
+ * @param {string} uid Owner of the attempt.
+ * @param {string} attemptId Attempt to read.
+ * @param {object} attemptData Current attempt state.
+ * @return {Promise<object>} Attempt response with the current server time.
+ */
 export async function buildAttemptResponse(
   uid: string,
   attemptId: string,
-  attemptData: Record<string, unknown>
+  attemptData: Record<string, unknown>,
 ): Promise<{serverNow: number; attempt: WireAttempt}> {
   // Load stored questions
-  const qSnap = await adminDb
-    .ref(`attemptQuestions/${uid}/${attemptId}`)
-    .get();
+  const qSnap = await adminDb.ref(`attemptQuestions/${uid}/${attemptId}`).get();
 
   const questions: WireQuestion[] = [];
   if (qSnap.exists()) {
-    const qData = qSnap.val() as Record<
-      string, Record<string, unknown>
-    >;
+    const qData = qSnap.val() as Record<string, Record<string, unknown>>;
 
     const sorted = Object.values(qData).sort(
-      (a, b) => ((a.ordinal as number) ?? 0) - ((b.ordinal as number) ?? 0)
+      (a, b) => ((a.ordinal as number) ?? 0) - ((b.ordinal as number) ?? 0),
     );
 
     for (const q of sorted) {
@@ -232,19 +253,15 @@ export async function buildAttemptResponse(
   }
 
   // Load answers/receipts
-  const aSnap = await adminDb
-    .ref(`attemptAnswers/${uid}/${attemptId}`)
-    .get();
+  const aSnap = await adminDb.ref(`attemptAnswers/${uid}/${attemptId}`).get();
 
   const receipts: WireReceipt[] = [];
 
   if (aSnap.exists()) {
-    const aData = aSnap.val() as Record<
-      string, Record<string, unknown>
-    >;
+    const aData = aSnap.val() as Record<string, Record<string, unknown>>;
 
     const sortedAnswers = Object.values(aData).sort(
-      (a, b) => ((a.ordinal as number) ?? 0) - ((b.ordinal as number) ?? 0)
+      (a, b) => ((a.ordinal as number) ?? 0) - ((b.ordinal as number) ?? 0),
     );
 
     for (const ans of sortedAnswers) {
@@ -271,7 +288,7 @@ export async function buildAttemptResponse(
       attemptId,
       status,
       questions,
-      aSnap.val() as Record<string, Record<string, unknown>>
+      aSnap.val() as Record<string, Record<string, unknown>>,
     );
     result = {
       attemptId,
@@ -306,6 +323,11 @@ export async function buildAttemptResponse(
   };
 }
 
+/**
+ * Format a date in the daily challenge's timezone.
+ * @param {Date|number} dateInput Date or timestamp, defaulting to now.
+ * @return {string} Calendar date in Asia/Ho_Chi_Minh.
+ */
 export function getDateKey(dateInput?: Date | number): string {
   const date = dateInput !== undefined ? new Date(dateInput) : new Date();
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -321,11 +343,21 @@ export function getDateKey(dateInput?: Date | number): string {
   return `${get("year")}-${get("month")}-${get("day")}`;
 }
 
+/**
+ * Normalize mode names, including the legacy daily challenge alias.
+ * @param {unknown} mode Mode supplied by stored data or a request.
+ * @return {string} Uppercase mode name.
+ */
 export function normalizeMode(mode: unknown): string {
   const value = typeof mode === "string" ? mode.toUpperCase() : "";
   return value === "DAILYCHALLENGE" ? "DAILY" : value;
 }
 
+/**
+ * Calculate the midnight deadline for a daily attempt.
+ * @param {object} attempt Attempt with a valid start timestamp.
+ * @return {number} End of the challenge day in milliseconds.
+ */
 export function dailyEndsAt(attempt: Record<string, unknown>): number {
   const startedAt = Number(attempt.startedAt || attempt.createdAt);
   if (!Number.isFinite(startedAt) || startedAt <= 0) {
@@ -334,52 +366,75 @@ export function dailyEndsAt(attempt: Record<string, unknown>): number {
   return Date.parse(`${getDateKey(startedAt)}T00:00:00+07:00`) + 86400000;
 }
 
+/**
+ * Check whether an unfinished daily attempt has reached its deadline.
+ * @param {object} attempt Current attempt state.
+ * @param {number} now Time used to check expiration.
+ * @return {boolean} Whether the daily attempt has expired.
+ */
 export function isDailyExpired(
-  attempt: Record<string, unknown>, now = Date.now()
+  attempt: Record<string, unknown>,
+  now = Date.now(),
 ): boolean {
-  return normalizeMode(attempt.mode) === "DAILY" &&
-    attempt.status !== "completed" && attempt.status !== "abandoned" &&
-    now >= dailyEndsAt(attempt);
+  return (
+    normalizeMode(attempt.mode) === "DAILY" &&
+    attempt.status !== "completed" &&
+    attempt.status !== "abandoned" &&
+    now >= dailyEndsAt(attempt)
+  );
 }
 
 /**
- * Reconcile practiceAttempts answeredCount and correctCount from authoritative attemptAnswers.
+ * Reconcile attempt counters from authoritative attemptAnswers.
+ * @param {string} uid Owner of the attempt.
+ * @param {string} attemptId Attempt to update.
+ * @param {number} now Timestamp for the counter update.
  */
 export async function reconcileAttemptCounters(
   uid: string,
   attemptId: string,
-  now: number = Date.now()
+  now: number = Date.now(),
 ): Promise<Record<string, unknown>> {
   const aSnap = await adminDb.ref(`attemptAnswers/${uid}/${attemptId}`).get();
-  const allAnswers = (aSnap.val() || {}) as Record<string, {isCorrect?: boolean}>;
+  const allAnswers = (aSnap.val() || {}) as Record<
+    string,
+    {isCorrect?: boolean}
+  >;
   const authoritativeAnswered = Object.keys(allAnswers).length;
   const authoritativeCorrect = Object.values(allAnswers).filter(
-    (a) => a.isCorrect === true
+    (a) => a.isCorrect === true,
   ).length;
 
-  const attTx = await adminDb.ref(`practiceAttempts/${uid}/${attemptId}`).transaction((att) => {
-    if (!att) return att;
-    att.answeredCount = authoritativeAnswered;
-    att.correctCount = authoritativeCorrect;
-    att.updatedAt = now;
-    return att;
-  });
+  const attTx = await adminDb
+    .ref(`practiceAttempts/${uid}/${attemptId}`)
+    .transaction((att) => {
+      if (!att) return att;
+      att.answeredCount = authoritativeAnswered;
+      att.correctCount = authoritativeCorrect;
+      att.updatedAt = now;
+      return att;
+    });
 
   return (attTx.snapshot.val() as Record<string, unknown>) || {};
 }
 
 /**
- * Ensure current question in attemptQuestions has valid openedAt and deadlineAt,
- * recovering from attemptData if needed.
+ * Recover the current question's timestamps from attemptData if needed.
+ * @param {string} uid Owner of the attempt.
+ * @param {string} attemptId Attempt containing the question.
+ * @param {number} index Current question index.
+ * @param {object} qData Stored question state.
+ * @param {object} attemptData Current attempt state.
  */
 export async function ensureQuestionDeadline(
   uid: string,
   attemptId: string,
   index: number,
   qData: Record<string, unknown>,
-  attemptData: Record<string, unknown>
+  attemptData: Record<string, unknown>,
 ): Promise<number> {
-  let deadlineAt = (qData.deadlineAt as number) || (attemptData.deadlineAt as number) || 0;
+  let deadlineAt =
+    (qData.deadlineAt as number) || (attemptData.deadlineAt as number) || 0;
   if (!deadlineAt || deadlineAt <= 0) {
     if (typeof qData.openedAt === "number" && qData.openedAt > 0) {
       deadlineAt = qData.openedAt + 30000;
@@ -391,12 +446,18 @@ export async function ensureQuestionDeadline(
   }
 
   // Self-healing recovery: persist missing values to attemptQuestions
-  if (deadlineAt > 0 && (qData.deadlineAt !== deadlineAt || qData.openedAt == null)) {
-    const openedAt = (qData.openedAt as number) || (deadlineAt - 30000);
-    await adminDb.ref(`attemptQuestions/${uid}/${attemptId}/${index}`).update({
-      openedAt,
-      deadlineAt,
-    }).catch(() => {});
+  if (
+    deadlineAt > 0 &&
+    (qData.deadlineAt !== deadlineAt || qData.openedAt == null)
+  ) {
+    const openedAt = (qData.openedAt as number) || deadlineAt - 30000;
+    await adminDb
+      .ref(`attemptQuestions/${uid}/${attemptId}/${index}`)
+      .update({
+        openedAt,
+        deadlineAt,
+      })
+      .catch(() => {});
   }
 
   return deadlineAt;

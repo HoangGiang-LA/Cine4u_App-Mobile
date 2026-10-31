@@ -2,7 +2,7 @@
 
 ## Web admin
 
-Web quản trị nằm riêng trong [`admin-web/`](admin-web/README.md), dùng React + TypeScript + Vite. Chạy `npm ci` rồi `npm run dev` trong thư mục đó, mở `http://127.0.0.1:5173/`. Đã cấu hình Firebase Web và đăng nhập Auth; các trang quản trị vẫn dùng dữ liệu mô phỏng qua **Open demo workspace**, chưa triển khai backend/API quản trị.
+Web quản trị nằm riêng trong [`admin-web/`](admin-web/README.md), dùng React + TypeScript + Vite. Khi chưa deploy Functions, chạy `npm.cmd run dev:local` trong thư mục đó, mở `http://127.0.0.1:5173/`. Lệnh khởi động Functions Emulator, server xác nhận quyền và web. Đăng nhập dùng Firebase Auth thật; các trang nghiệp vụ quản trị hiện vẫn dùng dữ liệu mẫu.
 
 ## Android người dùng
 
@@ -20,11 +20,28 @@ $env:JAVA_HOME='C:\Users\Acer\.jdks\jbr-21.0.11'
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
+### Chạy Android với Functions Emulator khi chưa deploy
+
+1. Khởi động các dịch vụ local và giữ terminal mở:
+
+   ```powershell
+   cd "D:\visual studio\EnglishBattle-full\frontend\admin-web"
+   npm.cmd run dev:local
+   ```
+
+2. Chờ thông báo web đã sẵn sàng. Trong Android Studio, mở project `frontend`, Sync Gradle, chọn bản `debug` và máy ảo Android (ví dụ `Medium Phone`), rồi nhấn Run.
+3. Đăng nhập/đăng ký bằng Firebase thật. App debug tự gọi Functions Emulator ở `10.0.2.2:5001` (địa chỉ máy tính từ máy ảo Android). Authentication và Realtime Database tiếp tục dùng project thật, nên các thao tác nghiệp vụ có thể ghi dữ liệu thật.
+
+Chỉ bản debug cho phép HTTP tới địa chỉ máy tính. Bản release luôn gọi Functions trên cloud. Sau khi deploy, có thể thử cloud bằng bản debug với `./gradlew.bat -PuseFunctionsEmulator=false assembleDebug`; bỏ tham số để trở về Emulator. Cấu hình mặc định này dành cho máy ảo Android; điện thoại thật cần cấu hình kết nối riêng.
+
 ## Chế độ dữ liệu
 
 - **Firebase thật (mặc định):** đăng ký/đăng nhập email, đặt lại mật khẩu, đổi tên/email và khôi phục phiên. Danh mục đọc `categories`/`topics` published. Cần bật Email/Password và cấp Rules phù hợp. Lỗi dịch vụ được hiển thị, không chuyển sang dữ liệu giả.
-- **Mô phỏng (chỉ debug):** bấm “Khám phá bản mô phỏng” ở màn đăng nhập. Dùng 250 câu/25 chủ đề từ seed, thử cả 4 chế độ, rating/xu/tiến độ/lịch sử lưu riêng trên thiết bị. Đối thủ và phòng đều được ghi rõ mô phỏng. Không tạo tài khoản hay giao dịch Firebase.
-- **Backend:** các callable đã được định nghĩa ở frontend, chưa được triển khai bởi thay đổi này. Chấm điểm, nhận thưởng, ghép trận thật và tổng hợp dashboard cần backend. Thông báo đẩy chưa có dịch vụ FCM.
+- **Backend:** các callable đã có trong `Backend/functions` chạy trên Emulator khi phát triển. Chức năng có callable chưa được export vẫn cần triển khai tiếp. Thông báo đẩy chưa có dịch vụ FCM.
+
+Tên được đồng bộ từ Auth sang RTDB sau khi lưu; khi mở lại app hoặc có mạng trở lại, app tải lại hồ sơ Auth và gọi `ensureUserProfile` để phục hồi đồng bộ bị gián đoạn. Email mới chỉ được đồng bộ sau khi Firebase Auth đã xác nhận thay đổi. Bước đồng bộ chỉ sửa tên/email và thời điểm cập nhật, giữ dữ liệu nghiệp vụ hiện có.
+
+Đề mới chỉ nhận câu có kỹ năng, chủ đề và bài học được xuất bản, đúng quan hệ. Backend kiểm tra phiên bản, bốn lựa chọn, đáp án/giải thích, đoạn đọc và tài nguyên TTS. Phiên đã bắt đầu giữ snapshot nội dung dù danh mục hoặc phiên bản sau đó thay đổi.
 
 ## Tài liệu bàn giao
 
@@ -34,12 +51,12 @@ Chuẩn bị ngày 25/10: [bàn giao trước backend](docs/PRE-BACKEND-HANDOFF.
 
 Giao diện đã được khôi phục về bố cục thiết kế gốc, bỏ XP/level: [phạm vi và giới hạn đối chiếu Figma](docs/FIGMA-RESTORATION.md), [ảnh xem nhanh](docs/figma-restoration-preview.png).
 
-Kết quả kiểm thử: [QA ngày 24/10/2026](docs/QA-2026-10-24.md). Khi seed thay đổi, chạy `pwsh -File tools/build-demo-content.ps1` từ thư mục frontend để tạo lại asset chỉ dành cho debug.
+Kết quả kiểm thử trước đây: [QA ngày 24/10/2026](docs/QA-2026-10-24.md). Chế độ học thử, repository mô phỏng và asset câu hỏi demo đã được loại bỏ khỏi app Android. Kiểm thử giao diện xác thực dùng các màn hình độc lập; kiểm thử nghiệp vụ dùng Firebase Emulator riêng.
 
 `contracts/database.rules.proposed.json` là bản Rules đề xuất được kiểm thử bằng emulator, yêu cầu `accountAccess` active và chặn client ghi dữ liệu. Rules gốc deny-all được giữ nguyên; bản đề xuất chưa được triển khai lên Firebase.
 
 ## Mã nguồn
 
-`data/` chứa model, repository interfaces, Firebase adapter, DTO codec và mô phỏng. `ui/UserViewModels.kt` quản lý trạng thái theo nhóm chức năng; `ui/App.kt` điều hướng, lifecycle và phiên người dùng. Các màn hình có loading/rỗng/lỗi/retry và hỗ trợ cuộn, TTS, kích thước chữ lớn.
+`data/` chứa model, repository interfaces, Firebase adapter và DTO codec. `ui/UserViewModels.kt` quản lý trạng thái theo nhóm chức năng; `ui/App.kt` điều hướng, lifecycle và phiên người dùng. Các màn hình có loading/rỗng/lỗi/retry và hỗ trợ cuộn, TTS, kích thước chữ lớn.
 
-Tài khoản và dữ liệu Firebase thật cần được kiểm thử tích hợp trên môi trường staging trước phát hành. Bản release không đóng gói seed có đáp án của demo.
+Tài khoản và dữ liệu Firebase thật cần được kiểm thử tích hợp trên môi trường staging trước phát hành. App Android không đóng gói ngân hàng câu hỏi hoặc đáp án mẫu; nội dung được tải từ Firebase.

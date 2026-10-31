@@ -1,7 +1,9 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
-import {finalizeAttemptLogic} from "./finalizeAttempt";
-import {readAttemptResponse as buildAttemptResponse} from "./finalizeAttempt";
+import {
+  finalizeAttemptLogic,
+  readAttemptResponse as buildAttemptResponse,
+} from "./finalizeAttempt";
 
 const REQUEST_ID_REGEX = /^[A-Za-z0-9_-]{1,128}$/;
 
@@ -22,13 +24,21 @@ export const leaveAttempt = onCall(
       requestId?: string;
     };
 
-    if (!attemptId || typeof attemptId !== "string" || attemptId.trim().length === 0) {
+    if (
+      !attemptId ||
+      typeof attemptId !== "string" ||
+      attemptId.trim().length === 0
+    ) {
       throw new HttpsError("invalid-argument", "attemptId is required.");
     }
-    if (!requestId || typeof requestId !== "string" || !REQUEST_ID_REGEX.test(requestId)) {
+    if (
+      !requestId ||
+      typeof requestId !== "string" ||
+      !REQUEST_ID_REGEX.test(requestId)
+    ) {
       throw new HttpsError(
         "invalid-argument",
-        "requestId is required and must match ^[A-Za-z0-9_-]{1,128}$"
+        "requestId is required and must match ^[A-Za-z0-9_-]{1,128}$",
       );
     }
 
@@ -36,12 +46,18 @@ export const leaveAttempt = onCall(
       // 2. Verify account is active
       const authUser = await adminAuth.getUser(uid);
       if (authUser.disabled) {
-        throw new HttpsError("permission-denied", "This account has been disabled.");
+        throw new HttpsError(
+          "permission-denied",
+          "This account has been disabled.",
+        );
       }
 
       const accessSnap = await adminDb.ref(`accountAccess/${uid}`).get();
       if (accessSnap.val()?.status !== "active") {
-        throw new HttpsError("permission-denied", "This account is not active.");
+        throw new HttpsError(
+          "permission-denied",
+          "This account is not active.",
+        );
       }
 
       // 3. Verify attempt existence and ownership
@@ -49,7 +65,10 @@ export const leaveAttempt = onCall(
       const attemptSnap = await attemptRef.get();
 
       if (!attemptSnap.exists()) {
-        throw new HttpsError("not-found", "Attempt not found or access denied.");
+        throw new HttpsError(
+          "not-found",
+          "Attempt not found or access denied.",
+        );
       }
 
       const attemptData = attemptSnap.val() as Record<string, unknown>;
@@ -77,5 +96,5 @@ export const leaveAttempt = onCall(
       console.error("leaveAttempt failed", {uid, attemptId, error});
       throw new HttpsError("internal", "Unable to leave attempt.");
     }
-  }
+  },
 );

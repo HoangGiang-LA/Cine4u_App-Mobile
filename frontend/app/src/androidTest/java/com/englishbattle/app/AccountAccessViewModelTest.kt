@@ -3,7 +3,6 @@ package com.englishbattle.app
 import android.app.Application
 import androidx.lifecycle.ViewModelStore
 import androidx.test.platform.app.InstrumentationRegistry
-import com.englishbattle.app.data.DataMode
 import com.englishbattle.app.data.UserFacingException
 import com.englishbattle.app.ui.AccountAccessViewModel
 import kotlinx.coroutines.CompletableDeferred
@@ -18,11 +17,11 @@ class AccountAccessViewModelTest {
     private val instrumentation get() = InstrumentationRegistry.getInstrumentation()
     private val store = ViewModelStore()
     private lateinit var viewModel: AccountAccessViewModel
-    private fun connect(initialize: suspend (DataMode) -> Unit) {
+    private fun connect(initialize: suspend () -> Unit) {
         instrumentation.runOnMainSync {
             viewModel = AccountAccessViewModel(instrumentation.targetContext.applicationContext as Application, initialize)
             store.put("access", viewModel)
-            viewModel.connect(DataMode.FIREBASE, "new-user")
+            viewModel.connect("new-user")
         }
     }
     @After fun cleanUp() {

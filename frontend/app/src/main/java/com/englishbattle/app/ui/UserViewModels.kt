@@ -7,7 +7,6 @@ import android.net.Network
 import android.net.NetworkCapabilities
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
-import com.englishbattle.app.BuildConfig
 import com.englishbattle.app.EnglishBattleApplication
 import com.englishbattle.app.data.*
 import com.google.firebase.functions.FirebaseFunctionsException
@@ -18,20 +17,19 @@ import kotlinx.coroutines.sync.Mutex
 import kotlinx.coroutines.sync.withLock
 import java.util.UUID
 
-data class AuthState(val user: UserIdentity? = null, val mode: DataMode = DataMode.FIREBASE,
+data class AuthState(val user: UserIdentity? = null,
     val busy: Boolean = false, val initializing: Boolean = true, val error: String? = null, val message: String? = null)
-class AuthViewModel(app: Application) : AndroidViewModel(app) {
-    private val container = (app as EnglishBattleApplication).container
-    private val prefs = app.getSharedPreferences("english_battle_session", Context.MODE_PRIVATE)
+class AuthViewModel(app: Application, private val repository: AuthRepository,
+    private val synchronizeProfile: suspend () -> Unit) : AndroidViewModel(app) {
+    constructor(app: Application) : this(app, (app as EnglishBattleApplication).container.auth,
+        { app.container.game.ensureProfile() })
     private val _state = MutableStateFlow(AuthState())
     val state = _state.asStateFlow()
     private var latestFirebaseUser: UserIdentity? = null
-    private fun demoIdentity() = UserIdentity("demo-local", prefs.getString("demoName", "Bạn học thử")!!, "demo@example.com", prefs.getLong("demoJoined", System.currentTimeMillis()))
     init {
-        if (BuildConfig.DEBUG && prefs.getBoolean("demo", false)) _state.value = AuthState(demoIdentity(), DataMode.DEMO, initializing = false)
-        viewModelScope.launch { container.auth.users.collect { user ->
+        viewModelScope.launch { repository.users.collect { user ->
             latestFirebaseUser = user
-            if (_state.value.mode == DataMode.FIREBASE && !(_state.value.busy && _state.value.user == null)) _state.update { it.copy(user = user, initializing = false) }
+            if (!(_state.value.busy && _state.value.user == null)) _state.update { it.copy(user = user, initializing = false) }
         } }
     }
     private fun action(block: suspend () -> Unit) {
@@ -39,52 +37,47 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
         _state.update { it.copy(busy = true, error = null, message = null) }
         viewModelScope.launch {
             try { block() } catch (e: Exception) { _state.update { it.copy(error = friendlyError(e)) } }
-            finally { _state.update { it.copy(busy = false, user = if (it.mode == DataMode.FIREBASE) latestFirebaseUser else it.user) } }
+            finally { _state.update { it.copy(busy = false, user = latestFirebaseUser) } }
         }
     }
     fun submit(register: Boolean, name: String, email: String, password: String) = action {
-        if (register) container.auth.signUp(name.trim(), email.trim(), password) else container.auth.signIn(email.trim(), password)
+        if (register) repository.signUp(name.trim(), email.trim(), password) else repository.signIn(email.trim(), password)
     }
     fun reset(email: String) = action {
-        container.auth.resetPassword(email.trim())
+        repository.resetPassword(email.trim())
         _state.update { it.copy(message = "Nếu email có tài khoản phù hợp, bạn sẽ nhận được liên kết đặt lại mật khẩu. Hãy kiểm tra cả thư rác.") }
     }
     fun updateName(name: String) = action {
-        if (_state.value.mode == DataMode.DEMO) {
-            prefs.edit().putString("demoName", name.trim()).apply()
-            _state.update { it.copy(user = demoIdentity(), message = "Đã lưu tên trong bản mô phỏng.") }
-        } else {
-            container.auth.updateName(name.trim())
-            _state.update { it.copy(message = "Đã cập nhật tên tài khoản.") }
+        repository.updateName(name.trim())
+        try { synchronizeProfile() }
+        catch (error: Exception) {
+            friendlyError(error) // Propagate cancellation before reporting a pending sync.
+            throw UserFacingException("Tên đã được lưu nhưng chưa đồng bộ xong. Vui lòng thử lại khi có kết nối.")
         }
+        _state.update { it.copy(message = "Đã cập nhật tên tài khoản.") }
     }
     fun changeEmail(email: String, password: String) = action {
-        if (_state.value.mode == DataMode.DEMO) throw UserFacingException("Đổi email chỉ áp dụng cho tài khoản Firebase thật.")
-        container.auth.changeEmail(email.trim(), password)
+        repository.changeEmail(email.trim(), password)
         _state.update { it.copy(message = "Đã gửi liên kết xác nhận đến email mới. Sau khi xác nhận, hãy đăng nhập lại bằng email mới.") }
     }
-    fun dismiss() { _state.update { it.copy(error = null, message = null) } }
-    fun enterDemo() {
-        if (!BuildConfig.DEBUG || _state.value.busy) return
-        prefs.edit().putBoolean("demo", true).apply()
-        if (!prefs.contains("demoJoined")) prefs.edit().putLong("demoJoined", System.currentTimeMillis()).apply()
-        _state.value = AuthState(demoIdentity(), DataMode.DEMO, initializing = false)
+    fun refreshProfile() {
+        if (_state.value.user == null) return
+        action { repository.reloadUser(); synchronizeProfile() }
     }
+    fun dismiss() { _state.update { it.copy(error = null, message = null) } }
     fun signOut() {
         if (_state.value.busy) return
-        prefs.edit().putBoolean("demo", false).apply()
-        container.auth.signOut()
+        repository.signOut()
         _state.value = AuthState(initializing = false)
     }
 }
 
-class CatalogViewModel(app: Application, private val catalogRepository: (DataMode) -> CatalogRepository) : AndroidViewModel(app) {
-    constructor(app: Application) : this(app, { mode -> (app as EnglishBattleApplication).container.catalog(mode) })
+class CatalogViewModel(app: Application, private val catalogRepository: () -> CatalogRepository) : AndroidViewModel(app) {
+    constructor(app: Application) : this(app, { (app as EnglishBattleApplication).container.catalog })
     private val _state = MutableStateFlow(LoadState<Catalog>())
     val state = _state.asStateFlow()
     private var job: Job? = null
-    private var mode = DataMode.FIREBASE
-    fun connect(mode: DataMode) { this.mode = mode; _state.value = LoadState(); retry() }
+    fun connect() { _state.value = LoadState(); retry() }
     fun clear() { job?.cancel(); _state.value = LoadState() }
     fun retry() {
         job?.cancel()
@@ -92,7 +85,7 @@ class CatalogViewModel(app: Application, private val catalogRepository: (DataMod
         job = viewModelScope.launch {
             try {
                 supervisorScope {
-                    val stream = catalogRepository(mode).observe().produceIn(this)
+                    val stream = catalogRepository().observe().produceIn(this)
                     try {
                         _state.value = LoadState(data = withTimeout(15_000) { stream.receive() })
                         for (data in stream) _state.value = LoadState(data)
@@ -105,7 +98,6 @@ class CatalogViewModel(app: Application, private val catalogRepository: (DataMod
 
 class UserDataViewModel(app: Application) : AndroidViewModel(app) {
     private val container = (app as EnglishBattleApplication).container
-    private var mode = DataMode.FIREBASE
     private var scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
     private val _dashboard = MutableStateFlow(LoadState<Dashboard>())
     val dashboard = _dashboard.asStateFlow()
@@ -116,8 +108,8 @@ class UserDataViewModel(app: Application) : AndroidViewModel(app) {
     private var dashboardJob: Job? = null
     private var boardJob: Job? = null
     var period = "week"; private set
-    fun connect(mode: DataMode) {
-        clear(); this.mode = mode
+    fun connect() {
+        clear()
         scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         refresh(); loadBoard("week")
     }
@@ -127,7 +119,7 @@ class UserDataViewModel(app: Application) : AndroidViewModel(app) {
         _dashboard.update { it.copy(loading = true, error = null) }
         dashboardJob = scope.launch {
             try {
-                val repo = container.game(mode)
+                val repo = container.game
                 _dashboard.value = LoadState(repo.dashboard())
             } catch (e: Exception) { _dashboard.update { it.copy(loading = false, error = friendlyError(e)) } }
         }
@@ -139,7 +131,7 @@ class UserDataViewModel(app: Application) : AndroidViewModel(app) {
         _board.value = LoadState(previous, loading = true)
         boardJob = scope.launch {
             try {
-                val page = container.game(mode).leaderboard(period, previous?.nextCursor)
+                val page = container.game.leaderboard(period, previous?.nextCursor)
                 _board.value = LoadState(if (previous == null) page else page.copy(entries = (previous.entries + page.entries).distinctBy { it.uid }))
             } catch (e: Exception) { _board.value = LoadState(previous, error = friendlyError(e)) }
         }
@@ -147,7 +139,7 @@ class UserDataViewModel(app: Application) : AndroidViewModel(app) {
     fun markRead(ids: List<String>) {
         if (ids.isEmpty()) return
         scope.launch {
-            try { container.game(mode).markRead(ids); refresh() }
+            try { container.game.markRead(ids); refresh() }
             catch (e: Exception) { _message.value = friendlyError(e) }
         }
     }
@@ -158,7 +150,6 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
     private val container = (app as EnglishBattleApplication).container
     private val prefs = app.getSharedPreferences("english_battle_pending", Context.MODE_PRIVATE)
     private var scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
-    private var mode = DataMode.FIREBASE
     private var key = ""
     private var foreground = true
     private var generation = 0
@@ -180,14 +171,14 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
     val activeId get() = prefs.getString("active-$key", null)
     val hasPendingStart get() = prefs.contains("start-mode-$key")
     val hasPendingMatch get() = prefs.contains("ticket-$key") || prefs.contains("find-kind-$key")
-    fun now() = if (mode == DataMode.DEMO) System.currentTimeMillis() else container.clock.now()
-    fun connect(mode: DataMode, uid: String) {
-        clear(); this.mode = mode; key = "${mode.name}-$uid"
+    fun now() = container.clock.now()
+    fun connect(uid: String) {
+        clear(); key = "FIREBASE-$uid"
         scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         val pendingTicket = prefs.getString("ticket-$key", null)
         if (pendingTicket != null) {
             _ticket.value = LoadState(loading = true)
-            run { acceptTicket(container.game(mode).matchStatus(pendingTicket)); beginPoll() }
+            run { acceptTicket(container.game.matchStatus(pendingTicket)); beginPoll() }
         } else if (activeId != null || hasPendingStart) resume()
     }
     fun clear() {
@@ -235,7 +226,7 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
         }
         prefs.edit().putString("start-mode-$key", quizMode.name).putString("start-topic-$key", topicId).apply()
         try {
-            accept(container.game(mode).start(quizMode, topicId, requestId))
+            accept(container.game.start(quizMode, topicId, requestId))
             prefs.edit().remove("start-$key-$signature").remove("start-mode-$key").remove("start-topic-$key").apply()
         } catch (e: Exception) {
             if (definitiveFailure(e)) prefs.edit().remove("start-$key-$signature").remove("start-mode-$key").remove("start-topic-$key").apply()
@@ -248,21 +239,21 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
             val request = pendingMode?.let { QuizMode.valueOf(it) to prefs.getString("start-topic-$key", null) } ?: lastStart ?: return
             start(request.first, request.second); return
         }
-        run { accept(container.game(mode).resume(id)) }
+        run { accept(container.game.resume(id)) }
     }
     fun submit(optionId: String?) = run {
         val a = _attempt.value.data ?: return@run
         val q = a.current ?: return@run
         if (a.receipt != null || a.status != "active") return@run
-        accept(container.game(mode).submit(a.id, q.id, optionId, "answer-${a.id}-${q.id}"))
+        accept(container.game.submit(a.id, q.id, optionId, "answer-${a.id}-${q.id}"))
     }
     fun advance() = run {
         val a = _attempt.value.data ?: return@run
-        accept(container.game(mode).advance(a.id, "advance-${a.id}-${a.index}"))
+        accept(container.game.advance(a.id, "advance-${a.id}-${a.index}"))
     }
     fun leave() = run {
         val a = _attempt.value.data ?: return@run
-        accept(container.game(mode).leave(a.id, "leave-${a.id}"))
+        accept(container.game.leave(a.id, "leave-${a.id}"))
     }
     fun find(kind: String, code: String? = null) = run {
         if (activeId != null || hasPendingStart || prefs.contains("ticket-$key")) throw UserFacingException("Bạn đang có phiên hoặc yêu cầu tìm trận. Hãy mở lại phiên đó.")
@@ -274,7 +265,7 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
         prefs.edit().putString("find-kind-$key", kind).putString("find-code-$key", code).apply()
         _ticket.value = LoadState(loading = true)
         try {
-            val t = container.game(mode).findMatch(kind, code, request)
+            val t = container.game.findMatch(kind, code, request)
             prefs.edit().putString("ticket-$key", t.id).remove("find-$key-$signature").remove("find-kind-$key").remove("find-code-$key").apply()
             acceptTicket(t); beginPoll()
         } catch (e: Exception) {
@@ -289,12 +280,12 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
             val request = kind?.let { it to prefs.getString("find-code-$key", null) } ?: lastFind ?: return
             find(request.first, request.second); return
         }
-        run { acceptTicket(container.game(mode).matchStatus(id)); beginPoll() }
+        run { acceptTicket(container.game.matchStatus(id)); beginPoll() }
     }
     fun enterMatch() = run {
         val t = _ticket.value.data ?: return@run
         val id = t.attemptId ?: return@run
-        accept(container.game(mode).resume(id))
+        accept(container.game.resume(id))
         prefs.edit().remove("ticket-$key").apply(); _ticket.value = LoadState()
     }
     fun cancelMatch() = run {
@@ -304,16 +295,16 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
             val code = prefs.getString("find-code-$key", null)
             val signature = "$kind-${code.orEmpty()}"
             val request = prefs.getString("find-$key-$signature", null) ?: return@run
-            val t = container.game(mode).findMatch(kind, code, request)
+            val t = container.game.findMatch(kind, code, request)
             prefs.edit().putString("ticket-$key", t.id).remove("find-kind-$key").remove("find-code-$key").remove("find-$key-$signature").apply()
             id = t.id
         }
-        container.game(mode).cancelMatch(id)
+        container.game.cancelMatch(id)
         prefs.edit().remove("ticket-$key").apply(); _ticket.value = LoadState(); poll?.cancel()
     }
     fun viewResult(id: String) = run {
         _result.value = LoadState(loading = true)
-        try { _result.value = LoadState(container.game(mode).historyDetail(id)) }
+        try { _result.value = LoadState(container.game.historyDetail(id)) }
         catch (e: Exception) { _result.value = LoadState(error = friendlyError(e)) }
     }
     fun setForeground(value: Boolean) { foreground = value; if (!value) poll?.cancel() else { if (activeId != null) resume(); beginPoll() } }
@@ -331,10 +322,10 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
                     gate.withLock {
                     if (_busy.value) return@withLock
                     if (matching) {
-                        val t = container.game(mode).matchStatus(_ticket.value.data!!.id)
+                        val t = container.game.matchStatus(_ticket.value.data!!.id)
                         acceptTicket(t)
                     } else {
-                        val a = container.game(mode).resume(_attempt.value.data!!.id)
+                        val a = container.game.resume(_attempt.value.data!!.id)
                         _attempt.value = LoadState(a)
                         if (a.result != null) accept(a)
                     }

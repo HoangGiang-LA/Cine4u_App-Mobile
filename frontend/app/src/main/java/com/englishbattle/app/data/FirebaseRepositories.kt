@@ -1,5 +1,6 @@
 package com.englishbattle.app.data
 
+import com.englishbattle.app.BuildConfig
 import com.google.firebase.FirebaseNetworkException
 import com.google.firebase.FirebaseTooManyRequestsException
 import com.google.firebase.auth.*
@@ -50,6 +51,13 @@ class FirebaseAuthRepository(private val auth: FirebaseAuth = FirebaseAuth.getIn
             user.verifyBeforeUpdateEmail(email).await()
         }
     }
+    override suspend fun reloadUser() {
+        withTimeout(20_000) {
+            try { auth.currentUser?.reload()?.await() }
+            catch (error: FirebaseAuthInvalidUserException) { auth.signOut(); throw error }
+            profileUpdates.value++
+        }
+    }
     override fun signOut() = auth.signOut()
 }
 
@@ -65,10 +73,18 @@ class FirebaseCatalogRepository(private val db: FirebaseDatabase) : CatalogRepos
         awaitClose { ref.removeEventListener(listener) }
     }
     override fun observe(): Flow<Catalog> = combine(values("categories"), values("topics")) { categories, topics ->
-        Catalog(categories.children.filter { it.child("status").getValue(String::class.java) == "published" }.mapNotNull {
+        val publishedCategories = categories.children.filter {
+            it.key in listOf("vocabulary", "grammar", "listening", "reading") &&
+                it.child("status").getValue(String::class.java) == "published"
+        }.mapNotNull {
             val name = it.child("name").getValue(String::class.java) ?: return@mapNotNull null
             Category(it.key ?: return@mapNotNull null, name, it.child("sortOrder").getValue(Int::class.java) ?: 0)
-        }.sortedBy { it.order }, topics.children.filter { it.child("status").getValue(String::class.java) == "published" }.mapNotNull {
+        }.sortedBy { it.order }
+        val categoryIds = publishedCategories.map { it.id }.toSet()
+        Catalog(publishedCategories, topics.children.filter {
+            it.child("status").getValue(String::class.java) == "published" &&
+                it.child("categoryId").getValue(String::class.java) in categoryIds
+        }.mapNotNull {
             Topic(it.key ?: return@mapNotNull null, it.child("categoryId").getValue(String::class.java) ?: return@mapNotNull null,
                 it.child("title").getValue(String::class.java) ?: return@mapNotNull null,
                 it.child("sortOrder").getValue(Int::class.java) ?: 0,
@@ -84,7 +100,9 @@ class ServerClock {
 }
 
 class FirebaseGameRepository(private val clock: ServerClock,
-    private val functions: FirebaseFunctions = FirebaseFunctions.getInstance("asia-southeast1")) : GameRepository {
+    private val functions: FirebaseFunctions = FirebaseFunctions.getInstance("asia-southeast1").apply {
+        if (BuildConfig.USE_FUNCTIONS_EMULATOR) useEmulator("10.0.2.2", 5001)
+    }) : GameRepository {
     private suspend fun call(name: String, data: Map<String, Any?> = emptyMap()): JSONObject = withTimeout(20_000) {
         val sentAt = System.currentTimeMillis()
         val response = try { functions.getHttpsCallable(name).call(data).await().data }
@@ -98,17 +116,20 @@ class FirebaseGameRepository(private val clock: ServerClock,
         if (json.has("serverNow")) clock.synchronize(json.getLong("serverNow"), sentAt, System.currentTimeMillis())
         json
     }
+    private suspend fun attempt(response: JSONObject): AttemptState = completeWaitingAttempt(
+        WireCodec.attempt(response.getJSONObject("attempt")), ::historyDetail
+    )
     override suspend fun ensureProfile() { call("ensureUserProfile") }
     override suspend fun dashboard() = WireCodec.dashboard(call("getUserDashboard").getJSONObject("dashboard"))
-    override suspend fun start(mode: QuizMode, topicId: String?, requestId: String) = WireCodec.attempt(call("startAttempt",
-        mapOf("mode" to mode.name, "topicId" to topicId, "requestId" to requestId)).getJSONObject("attempt"))
-    override suspend fun resume(attemptId: String) = WireCodec.attempt(call("resumeAttempt", mapOf("attemptId" to attemptId)).getJSONObject("attempt"))
-    override suspend fun submit(attemptId: String, questionId: String, optionId: String?, requestId: String) = WireCodec.attempt(call("submitAttemptAnswer",
-        mapOf("attemptId" to attemptId, "questionId" to questionId, "optionId" to optionId, "requestId" to requestId)).getJSONObject("attempt"))
-    override suspend fun advance(attemptId: String, requestId: String) = WireCodec.attempt(call("advanceAttempt",
-        mapOf("attemptId" to attemptId, "requestId" to requestId)).getJSONObject("attempt"))
-    override suspend fun leave(attemptId: String, requestId: String) = WireCodec.attempt(call("leaveAttempt",
-        mapOf("attemptId" to attemptId, "requestId" to requestId)).getJSONObject("attempt"))
+    override suspend fun start(mode: QuizMode, topicId: String?, requestId: String) = attempt(call("startAttempt",
+        mapOf("mode" to mode.name, "topicId" to topicId, "requestId" to requestId)))
+    override suspend fun resume(attemptId: String) = attempt(call("resumeAttempt", mapOf("attemptId" to attemptId)))
+    override suspend fun submit(attemptId: String, questionId: String, optionId: String?, requestId: String) = attempt(call("submitAttemptAnswer",
+        mapOf("attemptId" to attemptId, "questionId" to questionId, "optionId" to optionId, "requestId" to requestId)))
+    override suspend fun advance(attemptId: String, requestId: String) = attempt(call("advanceAttempt",
+        mapOf("attemptId" to attemptId, "requestId" to requestId)))
+    override suspend fun leave(attemptId: String, requestId: String) = attempt(call("leaveAttempt",
+        mapOf("attemptId" to attemptId, "requestId" to requestId)))
     override suspend fun findMatch(kind: String, code: String?, requestId: String) = WireCodec.ticket(call("findBattle",
         mapOf("kind" to kind, "roomCode" to code, "requestId" to requestId)).getJSONObject("ticket"))
     override suspend fun matchStatus(ticketId: String) = WireCodec.ticket(call("getBattleTicket", mapOf("ticketId" to ticketId)).getJSONObject("ticket"))

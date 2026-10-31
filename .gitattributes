@@ -1,0 +1,2 @@
+# Keep Cloud Functions compatible with ESLint on Windows checkouts.
+/Backend/functions/** text=auto eol=lf

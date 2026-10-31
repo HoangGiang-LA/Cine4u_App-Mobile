@@ -2,7 +2,6 @@ package com.englishbattle.app.data
 
 import kotlin.math.ceil
 
-enum class DataMode { FIREBASE, DEMO }
 enum class QuizMode(val title: String, val count: Int, val coins: Int) {
     PRACTICE("Luyện tập", 10, 1), TEST("Bài kiểm tra", 20, 2),
     DAILY("Thử thách hôm nay", 5, 2), BATTLE("Thi đấu", 10, 5)

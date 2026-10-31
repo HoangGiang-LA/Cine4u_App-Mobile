@@ -16,6 +16,16 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
+    buildTypes {
+        getByName("debug") {
+            buildConfigField("boolean", "USE_FUNCTIONS_EMULATOR",
+                providers.gradleProperty("useFunctionsEmulator")
+                    .map { it.toBooleanStrict().toString() }.getOrElse("true"))
+        }
+        getByName("release") {
+            buildConfigField("boolean", "USE_FUNCTIONS_EMULATOR", "false")
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17

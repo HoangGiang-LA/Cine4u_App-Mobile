@@ -4,7 +4,6 @@ import android.app.Application
 import androidx.lifecycle.AndroidViewModel
 import androidx.lifecycle.viewModelScope
 import com.englishbattle.app.EnglishBattleApplication
-import com.englishbattle.app.data.DataMode
 import com.englishbattle.app.data.friendlyError
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -15,18 +14,16 @@ data class AccountAccessState(val key: String? = null, val ready: Boolean = fals
     val error: String? = null)
 
 class AccountAccessViewModel(app: Application,
-    private val initialize: suspend (DataMode) -> Unit) : AndroidViewModel(app) {
-    constructor(app: Application) : this(app, { mode ->
-        (app as EnglishBattleApplication).container.game(mode).ensureProfile()
+    private val initialize: suspend () -> Unit) : AndroidViewModel(app) {
+    constructor(app: Application) : this(app, {
+        (app as EnglishBattleApplication).container.game.ensureProfile()
     })
     private val _state = MutableStateFlow(AccountAccessState())
     val state = _state.asStateFlow()
     private var job: Job? = null
-    private var mode = DataMode.FIREBASE
-    fun connect(mode: DataMode, uid: String) {
-        val key = "${mode.name}-$uid"
+    fun connect(uid: String) {
+        val key = "FIREBASE-$uid"
         if (_state.value.key == key) return
-        this.mode = mode
         _state.value = AccountAccessState(key)
         retry()
     }
@@ -36,7 +33,7 @@ class AccountAccessViewModel(app: Application,
         _state.value = AccountAccessState(key)
         job = viewModelScope.launch {
             try {
-                initialize(mode)
+                initialize()
                 if (_state.value.key == key) _state.value = AccountAccessState(key, ready = true)
             } catch (error: Exception) {
                 val message = friendlyError(error)

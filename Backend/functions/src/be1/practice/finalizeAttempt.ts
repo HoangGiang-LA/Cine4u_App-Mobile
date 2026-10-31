@@ -34,12 +34,15 @@ export interface UserSettlementModel {
 
 /**
  * Authoritative user settlement at userSettlements/{uid}.
- * Guarantees exactly-once reward accounting, idempotent replays and safe crash recovery.
+ * Apply rewards once, with idempotent replays and safe crash recovery.
+ * @param {string} uid Owner of the attempt.
+ * @param {string} attemptId Attempt to settle.
+ * @param {string} outcome Requested terminal outcome.
  */
 export async function finalizeAttemptLogic(
   uid: string,
   attemptId: string,
-  outcome: "completed" | "abandoned" = "completed"
+  outcome: "completed" | "abandoned" = "completed",
 ): Promise<FinalizeOutput> {
   const attemptRef = adminDb.ref(`practiceAttempts/${uid}/${attemptId}`);
   const attemptSnap = await attemptRef.get();
@@ -53,11 +56,25 @@ export async function finalizeAttemptLogic(
   const grantId = `grant_${attemptId}`;
   const modeRaw = normalizeMode(attemptData.mode || "practice");
   if (isDailyExpired(attemptData, now)) outcome = "abandoned";
-  if (modeRaw === "DAILY" && attemptData.status !== "completed" && attemptData.status !== "abandoned") {
-    const dateKey = getDateKey(Number(attemptData.startedAt || attemptData.createdAt));
-    const slotTx = await adminDb.ref(`userDailyChallenges/${uid}/${dateKey}`)
-      .transaction((slot) => slot || {attemptId, challengeId: "daily_mixed",
-        status: attemptData.status, startedAt: attemptData.startedAt});
+  if (
+    modeRaw === "DAILY" &&
+    attemptData.status !== "completed" &&
+    attemptData.status !== "abandoned"
+  ) {
+    const dateKey = getDateKey(
+      Number(attemptData.startedAt || attemptData.createdAt),
+    );
+    const slotTx = await adminDb
+      .ref(`userDailyChallenges/${uid}/${dateKey}`)
+      .transaction(
+        (slot) =>
+          slot || {
+            attemptId,
+            challengeId: "daily_mixed",
+            status: attemptData.status,
+            startedAt: attemptData.startedAt,
+          },
+      );
     if (slotTx.snapshot.val()?.attemptId !== attemptId) outcome = "abandoned";
   }
 
@@ -75,14 +92,18 @@ export async function finalizeAttemptLogic(
   const totalQuestions = (attemptData.questionCount as number) || 10;
   let answeredCount = Object.keys(allAnswers).length;
   let correctCount = Object.values(allAnswers).filter(
-    (a) => a.isCorrect === true
+    (a) => a.isCorrect === true,
   ).length;
 
-  if (outcome === "completed" && attemptData.status !== "completed" &&
-      attemptData.status !== "abandoned" && answeredCount < totalQuestions) {
+  if (
+    outcome === "completed" &&
+    attemptData.status !== "completed" &&
+    attemptData.status !== "abandoned" &&
+    answeredCount < totalQuestions
+  ) {
     throw new HttpsError(
       "failed-precondition",
-      "Cannot finalize attempt: not all questions are resolved."
+      "Cannot finalize attempt: not all questions are resolved.",
     );
   }
 
@@ -113,7 +134,7 @@ export async function finalizeAttemptLogic(
   if (!txOutcome.committed) {
     throw new HttpsError(
       "failed-precondition",
-      "Cannot finalize attempt: attempt is not in a valid state."
+      "Cannot finalize attempt: attempt is not in a valid state.",
     );
   }
 
@@ -122,7 +143,7 @@ export async function finalizeAttemptLogic(
   correctCount = Number(committedAttempt.correctCount) || 0;
   answeredCount = Number(committedAttempt.answeredCount) || 0;
 
-  // Step 2: Pre-read existing wallet, progress, and legacy rewardGrants for safe initialization/migration
+  // Step 2: Read wallet, progress and legacy grants before initialization.
   const [walletSnap, progSnap, rewardGrantsSnap] = await Promise.all([
     adminDb.ref(`wallets/${uid}`).get(),
     adminDb.ref(`learningProgress/${uid}`).get(),
@@ -134,13 +155,18 @@ export async function finalizeAttemptLogic(
   if (progSnap.exists()) {
     const pData = progSnap.val() as Record<string, unknown>;
     for (const [tId, v] of Object.entries(pData || {})) {
-      if (v && typeof v === "object" && typeof (v as Record<string, unknown>).completedAttempts === "number") {
-        baselineProgress[tId] = (v as Record<string, unknown>).completedAttempts as number;
+      if (
+        v &&
+        typeof v === "object" &&
+        typeof (v as Record<string, unknown>).completedAttempts === "number"
+      ) {
+        baselineProgress[tId] = (v as Record<string, unknown>)
+          .completedAttempts as number;
       }
     }
   }
 
-  // Import ONLY settled grants (status === "completed") from legacy rewardGrants
+  // Import legacy rewardGrants only when their status is "completed".
   const baselineGrants: Record<string, GrantRecord> = {};
   if (rewardGrantsSnap.exists()) {
     const rgData = rewardGrantsSnap.val() as Record<string, unknown>;
@@ -149,7 +175,8 @@ export async function finalizeAttemptLogic(
         const valObj = rgVal as Record<string, unknown>;
         if (valObj.status === "completed") {
           baselineGrants[rgId] = {
-            attemptId: (valObj.sourceId as string) || rgId.replace(/^grant_/, ""),
+            attemptId:
+              (valObj.sourceId as string) || rgId.replace(/^grant_/, ""),
             outcome: "completed",
             coinDelta: (valObj.coinDelta as number) || 0,
             correctCount: 0,
@@ -180,7 +207,7 @@ export async function finalizeAttemptLogic(
       if (!current) {
         current = {
           coinBalance: baselineCoinBalance,
-          grants: { ...baselineGrants },
+          grants: {...baselineGrants},
           progress: baselineProgress,
           initializedAt: now,
         };
@@ -196,7 +223,7 @@ export async function finalizeAttemptLogic(
       current.grants = current.grants || {};
       current.progress = current.progress || {};
 
-      // 1. Check if grant already exists (idempotency & terminal outcome immutability)
+      // 1. Preserve an existing grant and its terminal outcome on retries.
       if (current.grants[grantId]) {
         return current; // Unchanged return: do not increment again
       }
@@ -224,18 +251,25 @@ export async function finalizeAttemptLogic(
     });
 
   if (!settlementTx.committed) {
-    throw new HttpsError("internal", "Failed to commit authoritative user settlement.");
+    throw new HttpsError(
+      "internal",
+      "Failed to commit authoritative user settlement.",
+    );
   }
 
   // Derive authoritative output strictly from committed transaction snapshot
   const finalSettlement = settlementTx.snapshot.val() as UserSettlementModel;
   const grant = finalSettlement?.grants?.[grantId];
   if (!grant) {
-    throw new HttpsError("internal", "Settlement grant missing from committed snapshot.");
+    throw new HttpsError(
+      "internal",
+      "Settlement grant missing from committed snapshot.",
+    );
   }
-  const authoritativeProgress = (topicId && finalSettlement?.progress?.[topicId]) || 0;
+  const authoritativeProgress =
+    (topicId && finalSettlement?.progress?.[topicId]) || 0;
 
-  // Step 4: Synchronize / Project authoritative settlement into application nodes
+  // Step 4: Project authoritative settlement into application nodes.
   // 4.1 Sync wallets/{uid} safely using appliedGrants tracking
   const wasPreCreditedInBaseline = Boolean(baselineGrants[grantId]);
 
@@ -243,7 +277,12 @@ export async function finalizeAttemptLogic(
     if (!w) {
       return {
         coinBalance: finalSettlement.coinBalance,
-        appliedGrants: { ...Object.fromEntries(Object.keys(baselineGrants).map((k) => [k, true])), [grantId]: true },
+        appliedGrants: {
+          ...Object.fromEntries(
+            Object.keys(baselineGrants).map((k) => [k, true]),
+          ),
+          [grantId]: true,
+        },
         updatedAt: now,
       };
     }
@@ -262,7 +301,7 @@ export async function finalizeAttemptLogic(
     return w;
   });
 
-  // 4.2 Sync coinLedger & rewardGrants (keyed by grantId, completely idempotent)
+  // 4.2 Sync coinLedger and rewardGrants idempotently using grantId.
   if (grant.coinDelta > 0) {
     await adminDb.ref(`coinLedger/${uid}/${grantId}`).set({
       id: grantId,
@@ -290,14 +329,15 @@ export async function finalizeAttemptLogic(
           correctCount: grant.correctCount,
           answeredCount: grant.answeredCount,
           lastCompletedAt: grant.settledAt,
-          appliedGrants: { [grantId]: true },
+          appliedGrants: {[grantId]: true},
         };
       }
       p.appliedGrants = p.appliedGrants || {};
       if (p.appliedGrants[grantId]) {
         return p; // Already applied: prevent double-counting on replay
       }
-      p.completedAttempts = authoritativeProgress || ((p.completedAttempts || 0) + 1);
+      p.completedAttempts =
+        authoritativeProgress || (p.completedAttempts || 0) + 1;
       p.correctCount = (p.correctCount || 0) + grant.correctCount;
       p.answeredCount = (p.answeredCount || 0) + grant.answeredCount;
       p.lastCompletedAt = grant.settledAt;
@@ -307,49 +347,61 @@ export async function finalizeAttemptLogic(
 
     // Check achievement unlock for practice 20 (idempotent)
     if (authoritativeProgress >= 20) {
-      await adminDb.ref(`userAchievements/${uid}/practice_20_${topicId}`).transaction((ua) => {
-        if (ua && ua.unlockedAt > 0) return ua;
-        return {
-          progress: 20,
-          unlockedAt: now,
-          ruleVersion: "v1",
-        };
-      });
+      await adminDb
+        .ref(`userAchievements/${uid}/practice_20_${topicId}`)
+        .transaction((ua) => {
+          if (ua && ua.unlockedAt > 0) return ua;
+          return {
+            progress: 20,
+            unlockedAt: now,
+            ruleVersion: "v1",
+          };
+        });
     }
   }
 
   // Mixed TEST/DAILY attempts must count answers in each question's skill.
   if (grant.outcome === "completed") {
-    const questions = (await adminDb.ref(`attemptQuestions/${uid}/${attemptId}`).get()).val() || {};
+    const questions =
+      (await adminDb.ref(`attemptQuestions/${uid}/${attemptId}`).get()).val() ||
+      {};
     const skills: Record<string, {answered: number; correct: number}> = {};
     for (const [ordinal, question] of Object.entries(questions)) {
-      const categoryId = (question as Record<string, unknown>).categoryId as string;
+      const categoryId = (question as Record<string, unknown>)
+        .categoryId as string;
       const answer = allAnswers[ordinal];
-      if (!answer || !["vocabulary", "grammar", "listening", "reading"].includes(categoryId)) continue;
-      const counts = skills[categoryId] ||= {answered: 0, correct: 0};
+      if (
+        !answer ||
+        !["vocabulary", "grammar", "listening", "reading"].includes(categoryId)
+      ) {
+        continue;
+      }
+      const counts = (skills[categoryId] ||= {answered: 0, correct: 0});
       counts.answered++;
       if (answer.isCorrect) counts.correct++;
     }
     for (const [categoryId, counts] of Object.entries(skills)) {
-      await adminDb.ref(`userSkillStats/${uid}/${categoryId}`).transaction((s) => {
-        if (!s) {
-          return {
-            answeredCount: counts.answered,
-            correctCount: counts.correct,
-            completedAttempts: 1,
-            appliedGrants: {[grantId]: true},
-            updatedAt: now,
-          };
-        }
-        s.appliedGrants = s.appliedGrants || {};
-        if (s.appliedGrants[grantId]) return s;
-        s.answeredCount = (s.answeredCount || 0) + counts.answered;
-        s.correctCount = (s.correctCount || 0) + counts.correct;
-        s.completedAttempts = (s.completedAttempts || 0) + 1;
-        s.appliedGrants[grantId] = true;
-        s.updatedAt = now;
-        return s;
-      });
+      await adminDb
+        .ref(`userSkillStats/${uid}/${categoryId}`)
+        .transaction((s) => {
+          if (!s) {
+            return {
+              answeredCount: counts.answered,
+              correctCount: counts.correct,
+              completedAttempts: 1,
+              appliedGrants: {[grantId]: true},
+              updatedAt: now,
+            };
+          }
+          s.appliedGrants = s.appliedGrants || {};
+          if (s.appliedGrants[grantId]) return s;
+          s.answeredCount = (s.answeredCount || 0) + counts.answered;
+          s.correctCount = (s.correctCount || 0) + counts.correct;
+          s.completedAttempts = (s.completedAttempts || 0) + 1;
+          s.appliedGrants[grantId] = true;
+          s.updatedAt = now;
+          return s;
+        });
     }
   }
 
@@ -368,19 +420,27 @@ export async function finalizeAttemptLogic(
   await attemptRef.update(updates);
 
   // Publish the daily terminal status after all settlement projections. If a
-  // worker crashes earlier, midnight cleanup can still find and replay its slot.
+  // worker crashes earlier, midnight cleanup can find and replay its slot.
   if (modeRaw === "DAILY") {
     const originalDate = Number(attemptData.startedAt || attemptData.createdAt);
     const dateKey = getDateKey(originalDate);
-    await adminDb.ref(`userDailyChallenges/${uid}/${dateKey}`).transaction((slot) => {
-      if (slot?.attemptId && slot.attemptId !== attemptId) return;
-      return {...slot, challengeId: slot?.challengeId || "daily_mixed", attemptId,
-        status: grant.outcome, startedAt: originalDate,
-        completedQuestionCount: grant.answeredCount, completedAt: grant.settledAt,
-        ...(grant.coinDelta > 0 ? {rewardClaimedAt: grant.settledAt,
-          rewardGrantId: grantId} : {}),
-      };
-    });
+    await adminDb
+      .ref(`userDailyChallenges/${uid}/${dateKey}`)
+      .transaction((slot) => {
+        if (slot?.attemptId && slot.attemptId !== attemptId) return;
+        return {
+          ...slot,
+          challengeId: slot?.challengeId || "daily_mixed",
+          attemptId,
+          status: grant.outcome,
+          startedAt: originalDate,
+          completedQuestionCount: grant.answeredCount,
+          completedAt: grant.settledAt,
+          ...(grant.coinDelta > 0 ?
+            {rewardClaimedAt: grant.settledAt, rewardGrantId: grantId} :
+            {}),
+        };
+      });
   }
 
   const finalAttemptData = {
@@ -396,27 +456,55 @@ export async function finalizeAttemptLogic(
   };
 }
 
-/** Resolve expiry and replay any interrupted settlement before exposing results. */
+/**
+ * Resolve expiry and interrupted settlement before exposing results.
+ * @param {string} uid Owner of the attempt.
+ * @param {string} attemptId Attempt to read.
+ * @param {object} attempt Current attempt state.
+ */
 export async function readAttemptResponse(
-  uid: string, attemptId: string, attempt: Record<string, unknown>
+  uid: string,
+  attemptId: string,
+  attempt: Record<string, unknown>,
 ): Promise<{serverNow: number; attempt: WireAttempt}> {
-  if (attempt.status === "completed" || attempt.status === "abandoned" ||
-      isDailyExpired(attempt)) {
-    const finalized = await finalizeAttemptLogic(uid, attemptId,
-      attempt.status === "completed" ? "completed" : "abandoned");
+  if (
+    attempt.status === "completed" ||
+    attempt.status === "abandoned" ||
+    isDailyExpired(attempt)
+  ) {
+    const finalized = await finalizeAttemptLogic(
+      uid,
+      attemptId,
+      attempt.status === "completed" ? "completed" : "abandoned",
+    );
     return {serverNow: finalized.serverNow, attempt: finalized.attempt};
   }
   if (normalizeMode(attempt.mode) === "DAILY") {
     const dateKey = getDateKey(Number(attempt.startedAt || attempt.createdAt));
-    await adminDb.ref(`userDailyChallenges/${uid}/${dateKey}`).transaction((slot) => {
-      slot ||= {attemptId, startedAt: Number(attempt.startedAt || attempt.createdAt)};
-      if (slot.attemptId !== attemptId ||
-          slot.status === "completed" || slot.status === "abandoned") return;
-      if (slot.status === "waiting" && attempt.status === "active") return;
-      return {...slot, status: attempt.status,
-        completedQuestionCount: Math.max(Number(slot.completedQuestionCount) || 0,
-          Number(attempt.answeredCount) || 0)};
-    });
+    await adminDb
+      .ref(`userDailyChallenges/${uid}/${dateKey}`)
+      .transaction((slot) => {
+        slot ||= {
+          attemptId,
+          startedAt: Number(attempt.startedAt || attempt.createdAt),
+        };
+        if (
+          slot.attemptId !== attemptId ||
+          slot.status === "completed" ||
+          slot.status === "abandoned"
+        ) {
+          return;
+        }
+        if (slot.status === "waiting" && attempt.status === "active") return;
+        return {
+          ...slot,
+          status: attempt.status,
+          completedQuestionCount: Math.max(
+            Number(slot.completedQuestionCount) || 0,
+            Number(attempt.answeredCount) || 0,
+          ),
+        };
+      });
   }
   return buildAttemptResponse(uid, attemptId, attempt);
 }

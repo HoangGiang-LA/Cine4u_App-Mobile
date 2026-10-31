@@ -70,7 +70,11 @@ export async function mockFirebase(page: Page, { admin = true, allowAdmin = true
         : { headers, status: 403, json: { error: { status: 'PERMISSION_DENIED' } } },
     )
   })
-  await page.route('https://asia-southeast1-englishbattleapp-8d764.cloudfunctions.net/ensureUserProfile', async route => {
+  const profileEndpoints = new Set([
+    'https://asia-southeast1-englishbattleapp-8d764.cloudfunctions.net/ensureUserProfile',
+    'http://127.0.0.1:5001/englishbattleapp-8d764/asia-southeast1/ensureUserProfile',
+  ])
+  await page.route(url => profileEndpoints.has(`${url.origin}${url.pathname}`), async route => {
     const headers = {
       'Access-Control-Allow-Origin': 'http://127.0.0.1:5173',
       'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Firebase-GMPID',

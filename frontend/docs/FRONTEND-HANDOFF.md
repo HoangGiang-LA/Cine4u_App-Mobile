@@ -2,12 +2,14 @@
 
 Ngày cập nhật: 25/10/2026. Nền tảng: Android Kotlin + Jetpack Compose. Giao diện phải giữ theo Figma; các chuẩn bị backend không thay bố cục, nút hoặc nhãn. Xem [bàn giao trước backend](PRE-BACKEND-HANDOFF.md) và [hợp đồng máy đọc](../contracts/README.md).
 
+Cập nhật 31/10/2026: chế độ học thử trên Android đã được xóa, gồm nút vào demo, repository, dữ liệu câu hỏi và trạng thái lưu riêng. Cách chạy với Firebase thật và Functions Emulator được hướng dẫn trong [README](../README.md). Các hạng mục backend bên dưới là nội dung bàn giao ngày 25/10.
+
 ## Trạng thái 10 nhóm việc
 
 | Nhóm | Đã triển khai trong frontend | Phần cần môi trường/backend |
 |---|---|---|
-| 1. Đồng bộ UI | Bỏ XP/level, rating/xu, 4 chế độ với số câu riêng, 25 chủ đề trong bản mô phỏng | Nội dung thật theo dữ liệu đã xuất bản |
-| 2. Kiến trúc | Model, Auth/Catalog/UserData/Play ViewModel, repository interfaces và adapter Firebase/demo | Triển khai callable theo hợp đồng bên dưới |
+| 1. Đồng bộ UI | Bỏ XP/level, rating/xu, 4 chế độ với số câu riêng | Nội dung theo dữ liệu đã xuất bản trên Firebase |
+| 2. Kiến trúc | Model, Auth/Catalog/UserData/Play ViewModel, repository interfaces và adapter Firebase | Triển khai callable theo hợp đồng bên dưới |
 | 3. Xác thực | Email/password, đăng ký, reset password, đổi tên, đổi email có reauthentication, khôi phục phiên, đăng xuất | Bật Email/Password tại Firebase Console; kiểm tra email gửi thật. Nút Google được khôi phục theo Figma và hiện thông báo chưa cấu hình; chưa có xác thực Google/điện thoại |
 | 4. Danh mục | Firebase Database SDK, listener categories/topics theo query published, lỗi/rỗng/loading/retry | Rules cho phép truy vấn này và dữ liệu đã nhập |
 | 5. Làm bài | Chọn chủ đề, hướng dẫn, chọn/gửi đáp án, receipt, timeout, TTS, kết quả/review, resume | Server chọn đề, deadline, chấm và trả kết quả |
@@ -15,9 +17,9 @@ Ngày cập nhật: 25/10/2026. Nền tảng: Android Kotlin + Jetpack Compose. 
 | 7. Thi đấu | Sảnh, tìm/hủy, phòng riêng, mã phòng, vào trận, trạng thái kết nối, kết quả/lịch sử | Server ghép trận, đồng bộ lượt, grace period, phân xử |
 | 8. Hồ sơ/phụ | Profile thật từ Auth, wallet, lịch sử, leaderboard tuần/tháng/phân trang, achievements, notification/read, settings theo tài khoản | Dashboard/kết quả/thông báo do backend cung cấp; chưa có dịch vụ push notification |
 | 9. Hợp đồng | Interfaces, adapter callable, DTO/parser, request IDs, trạng thái/lỗi, ranh giới quyền | Hai bên triển khai và xác nhận contract |
-| 10. QA | Unit test contract và instrumentation cho repository/demo/UI, ảnh màn hình nhỏ/chữ lớn, build/lint | Kiểm thử tích hợp với backend và tài khoản Firebase thật trước phát hành |
+| 10. QA | Unit test contract và instrumentation cho ViewModel/UI, ảnh màn hình nhỏ/chữ lớn, build/lint | Kiểm thử tích hợp với backend và tài khoản Firebase thật trước phát hành |
 
-Các trạng thái trên mô tả phần frontend. Mô phỏng chạy được toàn bộ luồng không có nghĩa là đã có backend hoạt động. Chưa thể tuyên bố thi đấu thật, thưởng thật hoặc thông báo đẩy đã chạy end-to-end.
+Các trạng thái trên mô tả phần frontend. Từng chức năng cần callable tương ứng để hoạt động; thi đấu và thông báo đẩy vẫn cần hoàn thiện backend.
 
 ## Chạy ứng dụng
 
@@ -31,9 +33,7 @@ $env:JAVA_HOME='C:\Users\Acer\.jdks\jbr-21.0.11'
 
 APK: `app/build/outputs/apk/debug/app-debug.apk`.
 
-Bản debug có nút **Khám phá bản mô phỏng** trên màn hình đăng nhập. Bản release không có nút và không đóng gói `src/debug/assets/demo-content.json`. Chế độ thật là mặc định. Chỉ người dùng chủ động chọn demo mới dùng dữ liệu mô phỏng; lỗi mạng/Firebase không chuyển sang demo.
-
-Demo có 250 câu/25 chủ đề từ seed, lưu phiên/kết quả/xu trong SharedPreferences riêng trên thiết bị. Đối thủ có nhãn “Đối thủ mô phỏng”, phòng chỉ giả lập. Nhận diện demo là `demo-local`, không tạo Firebase user. Điểm/xu của demo không được gửi vào Firebase.
+App dùng Firebase Authentication và Realtime Database thật. Bản debug gọi Functions Emulator trên máy tính; bản release gọi Functions trên cloud. Cả hai bản đều không đóng gói bộ câu hỏi mẫu hoặc cung cấp chế độ học thử offline.
 
 ## Thiết lập Firebase thật
 
@@ -55,8 +55,7 @@ Demo có 250 câu/25 chủ đề từ seed, lưu phiên/kết quả/xu trong Sha
 - `data/Repositories.kt`: hợp đồng tác vụ.
 - `data/FirebaseRepositories.kt`: Auth, danh mục RTDB và callable Functions.
 - `data/WireCodec.kt`: parser/serialization DTO.
-- `data/DemoRepositories.kt`: mô phỏng tách khỏi dữ liệu thật.
-- `EnglishBattleApplication.kt`: nơi chọn repository và cấu hình project/region.
+- `EnglishBattleApplication.kt`: khởi tạo repository Firebase và dọn trạng thái học thử cũ khi nâng cấp.
 - `ui/UserViewModels.kt`: trạng thái xác thực, catalog, dashboard và phiên làm bài/tìm trận.
 - `ui/App.kt`: điều hướng, chặn truy cập khi chưa đăng nhập, xóa trạng thái UI khi đổi phiên, lifecycle/network banner.
 
@@ -140,12 +139,12 @@ Ví dụ rút gọn còn một câu; phiên PRACTICE thật phải có 10 câu. 
 - `advanceAttempt` trong battle chỉ đồng bộ lượt được server cho phép; một client không được tự thay đổi lượt/deadline của cả trận. Server phải tự chạy deadline và phân xử dù client không gọi advance.
 - Backend bảo đảm một bộ câu/version chung cho hai người; không lộ lựa chọn chưa commit của đối thủ; kết quả đã chốt không được mở lại.
 - `cancelBattleSearch` nếu race với matched/started phải xử lý nguyên tử: hủy yêu cầu trước khi trận bắt đầu, hoặc áp dụng quy tắc rời trận/đưa lỗi kèm khả năng lấy lại ticket. Không để orphan battle mà client không thể khôi phục.
-- Mã phiên/ticket đang dở được lưu theo mode+UID. Các StateFlow/UI bị xóa khi đăng xuất/đổi tài khoản, không lưu mật khẩu hoặc đáp án đúng của phiên thật vào preferences. Settings và demo có namespace riêng.
+- Mã phiên/ticket đang dở và settings được lưu theo tài khoản Firebase. Các StateFlow/UI bị xóa khi đăng xuất/đổi tài khoản, không lưu mật khẩu hoặc đáp án đúng của phiên thật vào preferences.
 - Resume từ app nền tính lại thời gian theo deadline, không đặt lại 30 giây. TTS dừng khi sang câu, thoát màn hình hoặc app xuống nền.
 - Adapter v1 cập nhật ticket và trận đang mở bằng polling callable mỗi 3 giây; dừng khi app xuống nền, kết thúc hoặc hủy; lỗi có backoff. Đây chưa phải listener battle RTDB. Có thể thay implementation bằng `battlePayloads/{roomId}/{uid}` khi backend chốt payload/Rules, giữ nguyên interface/UI.
 - Mất mạng không tự phân xử thắng/thua. UI chỉ hiển thị reconnectDeadlineAt nếu server cung cấp. Server quản lý grace period 30 giây kể cả khi client bị tắt.
 - Nếu cả hai đều mất kết nối quá grace 30 giây trước khi có kết quả cuối, xử hòa, không đổi rating và không thưởng xu. Kết quả đã chốt bất biến. Thứ tự sự kiện cạnh tranh phải được xử lý nguyên tử tại server.
-- Thử thách học kết thúc lúc 00:00 `Asia/Ho_Chi_Minh`: `deadlineAt` của câu là min(đầu câu + 30 giây, mốc hết ngày). Phiên cũ trả `status: abandoned`, `result.outcome: abandoned`, `coins: 0`, không chiếm lượt ngày mới. Không nhận đáp án/thưởng gửi trễ hoặc mở lại phiên cũ sau mốc này. Demo đã mô phỏng quy tắc này; thật vẫn do server quyết định.
+- Thử thách học kết thúc lúc 00:00 `Asia/Ho_Chi_Minh`: `deadlineAt` của câu là min(đầu câu + 30 giây, mốc hết ngày). Phiên cũ trả `status: abandoned`, `result.outcome: abandoned`, `coins: 0`, không chiếm lượt ngày mới. Không nhận đáp án/thưởng gửi trễ hoặc mở lại phiên cũ sau mốc này. Server thực thi quy tắc hết hạn.
 - Khi callable trả UNAUTHENTICATED, adapter đăng xuất phiên local để người dùng xác thực lại. Các lỗi khác không biến thành kết quả thành công.
 
 ### Lỗi
@@ -172,6 +171,6 @@ Dùng Firebase callable codes: UNAUTHENTICATED, PERMISSION_DENIED, INVALID_ARGUM
 - Bài học: hết giờ, TTS không có giọng, app nền/kill/reopen, rời bài, lượt ngày và thành tích 20/20.
 - Trận: hủy tìm ngay khi matched, phòng sai/đầy/hết hạn, hai client cùng đề, mất mạng 30 giây, cả hai ngắt kết nối, thua ở rating 0/1, hòa và phần thưởng đúng một lần.
 - Notification read, danh sách rỗng, lỗi mạng, phân trang leaderboard, màn nhỏ và chữ lớn.
-- Build release và xác nhận không có demo asset/nút demo. Signing/distribution và chính sách bảo mật phát hành vẫn cần cấu hình của chủ dự án.
+- Build debug/release và xác nhận không có bộ câu hỏi mẫu hoặc nút học thử. Signing/distribution và chính sách bảo mật phát hành vẫn cần cấu hình của chủ dự án.
 
 Nguồn SDK: https://firebase.google.com/docs/auth/android/password-auth ; https://firebase.google.com/docs/database/android/read-and-write ; https://firebase.google.com/docs/functions/callable .

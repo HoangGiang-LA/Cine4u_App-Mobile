@@ -2,6 +2,12 @@ import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 
 
+/**
+ * Initialize a database record without overwriting existing data.
+ * @param {string} path Database path to initialize.
+ * @param {object} initialData Defaults used only when the record is absent.
+ * @return {Promise<void>} Resolves when the record exists.
+ */
 async function createIfMissing(
   path: string,
   initialData: object
@@ -148,6 +154,32 @@ export const ensureUserProfile = onCall(
           "This account is not active."
         );
       }
+
+      // Auth remains authoritative after name changes and email verification.
+      // Re-read after provisioning, since registration may still update Auth.
+      const currentAuthUser = await adminAuth.getUser(uid);
+      if (currentAuthUser.disabled) {
+        throw new HttpsError("permission-denied", "Account is disabled.");
+      }
+      const [profileSnap, privateSnap] = await Promise.all([
+        adminDb.ref(`users/${uid}`).get(),
+        adminDb.ref(`userPrivate/${uid}`).get(),
+      ]);
+      const displayName = currentAuthUser.displayName || "New Player";
+      const email = currentAuthUser.email || "";
+      const updates: Record<string, unknown> = {};
+      const syncedAt = Date.now();
+      if (profileSnap.val()?.displayName !== displayName) {
+        updates[`users/${uid}/displayName`] = displayName;
+        updates[`users/${uid}/updatedAt`] = syncedAt;
+      }
+      if (privateSnap.val()?.email !== email) {
+        updates[`userPrivate/${uid}/email`] = email;
+        updates[`userPrivate/${uid}/updatedAt`] = syncedAt;
+      }
+      // Only these fields are patched, together. Existing balances, access,
+      // progress, roles and other profile fields are never replaced by a sync.
+      if (Object.keys(updates).length) await adminDb.ref().update(updates);
 
       return {
         serverNow: Date.now(),

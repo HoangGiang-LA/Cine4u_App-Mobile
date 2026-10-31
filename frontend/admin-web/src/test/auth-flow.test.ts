@@ -1,8 +1,9 @@
-import {beforeEach, describe, expect, it, vi} from 'vitest'
+import {afterEach, beforeEach, describe, expect, it, vi} from 'vitest'
 
 const mocks = vi.hoisted(() => ({
   auth: {currentUser: {uid: 'admin', email: 'admin@example.test', displayName: 'Admin'}},
   token: vi.fn(), provision: vi.fn(), verify: vi.fn(),
+  functions: {}, connectEmulator: vi.fn(),
 }))
 vi.mock('firebase/app', () => ({getApps: () => [], initializeApp: () => ({})}))
 vi.mock('firebase/database', () => ({getDatabase: () => ({})}))
@@ -11,7 +12,11 @@ vi.mock('firebase/auth', () => ({
   browserSessionPersistence: {}, onIdTokenChanged: vi.fn(), setPersistence: vi.fn(),
   signInWithEmailAndPassword: vi.fn(), signOut: vi.fn(),
 }))
-vi.mock('firebase/functions', () => ({getFunctions: () => ({}), httpsCallable: () => mocks.provision}))
+vi.mock('firebase/functions', () => ({
+  getFunctions: () => mocks.functions,
+  connectFunctionsEmulator: mocks.connectEmulator,
+  httpsCallable: () => mocks.provision,
+}))
 vi.mock('../firebase/backend', () => ({verifyAdminAccess: mocks.verify}))
 import {authGateway} from '../firebase/client'
 
@@ -20,6 +25,34 @@ beforeEach(() => {
   mocks.token.mockResolvedValue({token: 'test-token', claims: {admin: true}})
   mocks.provision.mockResolvedValue({data: {serverNow: 1}})
   mocks.verify.mockResolvedValue(undefined)
+})
+
+describe('local Functions with real Firebase authentication', () => {
+  afterEach(() => vi.unstubAllEnvs())
+
+  it('routes Functions to localhost only when explicitly enabled in development', async () => {
+    vi.stubEnv('DEV', true)
+    vi.stubEnv('VITE_USE_FUNCTIONS_EMULATOR', 'true')
+    vi.resetModules()
+    await import('../firebase/client')
+    expect(mocks.connectEmulator).toHaveBeenCalledWith(mocks.functions, '127.0.0.1', 5001)
+  })
+
+  it('keeps production Functions when local mode is not enabled', async () => {
+    vi.stubEnv('DEV', true)
+    vi.stubEnv('VITE_USE_FUNCTIONS_EMULATOR', '')
+    vi.resetModules()
+    await import('../firebase/client')
+    expect(mocks.connectEmulator).not.toHaveBeenCalled()
+  })
+
+  it('ignores the local Functions flag in production builds', async () => {
+    vi.stubEnv('DEV', false)
+    vi.stubEnv('VITE_USE_FUNCTIONS_EMULATOR', 'true')
+    vi.resetModules()
+    await import('../firebase/client')
+    expect(mocks.connectEmulator).not.toHaveBeenCalled()
+  })
 })
 
 describe('BE1 provisioning ownership and admin HTTP authorization', () => {

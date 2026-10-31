@@ -94,7 +94,7 @@ import com.englishbattle.app.data.*
         }
     }
 }
-@Composable fun SettingsScreen(user: UserIdentity, mode: DataMode, preferenceKey: String, busy: Boolean,
+@Composable fun SettingsScreen(user: UserIdentity, preferenceKey: String, busy: Boolean,
     back: () -> Unit, logout: () -> Unit, changeEmail: (String, String) -> Unit) {
     val context = LocalContext.current
     val prefs = remember(preferenceKey) { context.getSharedPreferences(preferenceKey, Context.MODE_PRIVATE) }
@@ -125,10 +125,10 @@ import com.englishbattle.app.data.*
             }
             SettingRow("Ngôn ngữ", Icons.Outlined.Translate) { info = "Ngôn ngữ hiện tại: Tiếng Việt. Nội dung bài học: Tiếng Anh." }
             SettingRow("Giao diện", Icons.Outlined.Palette) { info = "Giao diện sáng theo thiết kế English Battle của bạn. Kích thước chữ theo cài đặt Android." }
-            SettingRow("Về ứng dụng", Icons.Outlined.Info) { info = "English Battle 1.0.0\nHọc tiếng Anh mỗi ngày.\n\n${if (mode == DataMode.DEMO) "Bản mô phỏng: dữ liệu lưu riêng trên thiết bị, không tạo tài khoản hay giao dịch thật." else "Tài khoản được xác thực bằng Firebase. Kết quả, rating và xu do dịch vụ xác nhận."}" }
+            SettingRow("Về ứng dụng", Icons.Outlined.Info) { info = "English Battle 1.0.0\nHọc tiếng Anh mỗi ngày.\n\nTài khoản được xác thực bằng Firebase. Kết quả, rating và xu do dịch vụ xác nhận." }
             SettingRow("Chính sách bảo mật", Icons.Outlined.Shield) { info = "App không lưu mật khẩu trong dữ liệu ứng dụng. Tùy chọn âm thanh/thông báo được lưu riêng theo tài khoản. Thông báo trong app cần quyền đọc theo tài khoản; dịch vụ thông báo đẩy chưa được kích hoạt." }
         }
-        if (mode == DataMode.FIREBASE) TextButton({ emailDialog = true }, Modifier.fillMaxWidth(), enabled = !busy) { Text("Đổi email đăng nhập") }
+        TextButton({ emailDialog = true }, Modifier.fillMaxWidth(), enabled = !busy) { Text("Đổi email đăng nhập") }
         Spacer(Modifier.height(110.dp))
         TextButton({ logoutDialog = true }, Modifier.fillMaxWidth().clip(RoundedCornerShape(18.dp)).background(Color.White), enabled = !busy) {
             Icon(Icons.Outlined.Logout, null, tint = Color(0xFFCA7788)); Spacer(Modifier.width(12.dp)); Text("Đăng xuất", color = Color(0xFFCA7788))

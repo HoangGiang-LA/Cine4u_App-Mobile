@@ -27,7 +27,7 @@ class CatalogViewModelTest {
         instrumentation.runOnMainSync {
             viewModel = CatalogViewModel(instrumentation.targetContext.applicationContext as Application) { repository }
             store.put("catalog", viewModel)
-            viewModel.connect(DataMode.FIREBASE)
+            viewModel.connect()
         }
     }
 

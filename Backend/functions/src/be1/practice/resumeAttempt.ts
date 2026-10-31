@@ -11,21 +11,19 @@ export const resumeAttempt = onCall(
     // 1. Auth check
     const uid = request.auth?.uid;
     if (!uid) {
-      throw new HttpsError(
-        "unauthenticated",
-        "You must sign in first."
-      );
+      throw new HttpsError("unauthenticated", "You must sign in first.");
     }
 
     const data = request.data as {attemptId?: string};
     const attemptId = data?.attemptId;
 
     // 2. Validate input
-    if (!attemptId || typeof attemptId !== "string" || attemptId.trim().length === 0) {
-      throw new HttpsError(
-        "invalid-argument",
-        "attemptId is required."
-      );
+    if (
+      !attemptId ||
+      typeof attemptId !== "string" ||
+      attemptId.trim().length === 0
+    ) {
+      throw new HttpsError("invalid-argument", "attemptId is required.");
     }
 
     try {
@@ -34,19 +32,17 @@ export const resumeAttempt = onCall(
       if (authUser.disabled) {
         throw new HttpsError(
           "permission-denied",
-          "This account has been disabled."
+          "This account has been disabled.",
         );
       }
 
-      const accessSnap = await adminDb
-        .ref(`accountAccess/${uid}`)
-        .get();
+      const accessSnap = await adminDb.ref(`accountAccess/${uid}`).get();
       const access = accessSnap.val();
 
       if (access?.status !== "active") {
         throw new HttpsError(
           "permission-denied",
-          "This account is not active."
+          "This account is not active.",
         );
       }
 
@@ -58,7 +54,7 @@ export const resumeAttempt = onCall(
       if (!attemptSnap.exists()) {
         throw new HttpsError(
           "not-found",
-          "Attempt not found or access denied."
+          "Attempt not found or access denied.",
         );
       }
 
@@ -73,10 +69,7 @@ export const resumeAttempt = onCall(
 
       console.error("resumeAttempt failed", {uid, attemptId, error});
 
-      throw new HttpsError(
-        "internal",
-        "Unable to resume attempt."
-      );
+      throw new HttpsError("internal", "Unable to resume attempt.");
     }
-  }
+  },
 );

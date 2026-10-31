@@ -16,7 +16,11 @@ export const getAttemptResult = onCall(
     }
 
     const {attemptId} = (request.data || {}) as {attemptId?: string};
-    if (!attemptId || typeof attemptId !== "string" || attemptId.trim().length === 0) {
+    if (
+      !attemptId ||
+      typeof attemptId !== "string" ||
+      attemptId.trim().length === 0
+    ) {
       throw new HttpsError("invalid-argument", "attemptId is required.");
     }
 
@@ -24,12 +28,18 @@ export const getAttemptResult = onCall(
       // 2. Verify account is active
       const authUser = await adminAuth.getUser(uid);
       if (authUser.disabled) {
-        throw new HttpsError("permission-denied", "This account has been disabled.");
+        throw new HttpsError(
+          "permission-denied",
+          "This account has been disabled.",
+        );
       }
 
       const accessSnap = await adminDb.ref(`accountAccess/${uid}`).get();
       if (accessSnap.val()?.status !== "active") {
-        throw new HttpsError("permission-denied", "This account is not active.");
+        throw new HttpsError(
+          "permission-denied",
+          "This account is not active.",
+        );
       }
 
       // 3. Verify attempt existence and ownership
@@ -37,15 +47,22 @@ export const getAttemptResult = onCall(
       const attemptSnap = await attemptRef.get();
 
       if (!attemptSnap.exists()) {
-        throw new HttpsError("not-found", "Attempt not found or access denied.");
+        throw new HttpsError(
+          "not-found",
+          "Attempt not found or access denied.",
+        );
       }
 
       const attemptData = attemptSnap.val() as Record<string, unknown>;
       const status = (attemptData.status as string) || "active";
 
-      // 4. Finalize if in waiting state, or return existing result if already completed/abandoned
+      // 4. Finalize waiting attempts or replay existing terminal results.
       if (status === "waiting" || isDailyExpired(attemptData)) {
-        const finalized = await finalizeAttemptLogic(uid, attemptId, "completed");
+        const finalized = await finalizeAttemptLogic(
+          uid,
+          attemptId,
+          "completed",
+        );
         return {
           serverNow: finalized.serverNow,
           result: finalized.result,
@@ -53,8 +70,11 @@ export const getAttemptResult = onCall(
       }
 
       if (status === "completed" || status === "abandoned") {
-        const res = await finalizeAttemptLogic(uid, attemptId,
-          status === "completed" ? "completed" : "abandoned");
+        const res = await finalizeAttemptLogic(
+          uid,
+          attemptId,
+          status === "completed" ? "completed" : "abandoned",
+        );
         return {
           serverNow: res.serverNow,
           result: res.result,
@@ -64,7 +84,7 @@ export const getAttemptResult = onCall(
       // Attempt is still active and has not reached the final question
       throw new HttpsError(
         "failed-precondition",
-        "Attempt is still active and has not reached a final result."
+        "Attempt is still active and has not reached a final result.",
       );
     } catch (error) {
       if (error instanceof HttpsError) {
@@ -73,5 +93,5 @@ export const getAttemptResult = onCall(
       console.error("getAttemptResult failed", {uid, attemptId, error});
       throw new HttpsError("internal", "Unable to get attempt result.");
     }
-  }
+  },
 );
