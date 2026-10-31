@@ -109,6 +109,7 @@ export async function finalizeAttemptLogic(
 
   // Atomic final-outcome decision on practiceAttempts
   // Prevents concurrent conflict between completed and abandoned calls
+  // Keep speculative transaction values out of parallel result reads.
   const txOutcome = await attemptRef.transaction((att) => {
     if (!att) return att;
     // Already in a terminal state: keep immutable
@@ -129,7 +130,7 @@ export async function finalizeAttemptLogic(
     att.answeredCount = answeredCount;
     att.updatedAt = now;
     return att;
-  });
+  }, undefined, false);
 
   if (!txOutcome.committed) {
     throw new HttpsError(
@@ -321,39 +322,37 @@ export async function finalizeAttemptLogic(
 
   // 4.3 Sync learningProgress (ONLY for completed PRACTICE mode)
   if (grant.outcome === "completed" && modeRaw === "PRACTICE" && topicId) {
-    await adminDb.ref(`learningProgress/${uid}/${topicId}`).transaction((p) => {
-      if (!p) {
-        return {
-          completedAttempts: authoritativeProgress || 1,
-          completionTarget: 20,
-          correctCount: grant.correctCount,
-          answeredCount: grant.answeredCount,
-          lastCompletedAt: grant.settledAt,
-          appliedGrants: {[grantId]: true},
-        };
-      }
-      p.appliedGrants = p.appliedGrants || {};
-      if (p.appliedGrants[grantId]) {
-        return p; // Already applied: prevent double-counting on replay
-      }
-      p.completedAttempts =
-        authoritativeProgress || (p.completedAttempts || 0) + 1;
-      p.correctCount = (p.correctCount || 0) + grant.correctCount;
-      p.answeredCount = (p.answeredCount || 0) + grant.answeredCount;
-      p.lastCompletedAt = grant.settledAt;
-      p.appliedGrants[grantId] = true;
-      return p;
-    });
+    const progressTx = await adminDb
+      .ref(`learningProgress/${uid}/${topicId}`)
+      .transaction((p) => {
+        p ||= {completionTarget: 20, correctCount: 0, answeredCount: 0};
+        // Another completion may have projected a newer settlement already.
+        // Repair old regressions on replay, even if this grant was applied.
+        p.completedAttempts = Math.max(
+          Number(p.completedAttempts) || 0, authoritativeProgress,
+        );
+        p.lastCompletedAt = Math.max(
+          Number(p.lastCompletedAt) || 0, grant.settledAt,
+        );
+        p.appliedGrants ||= {};
+        if (!p.appliedGrants[grantId]) {
+          p.correctCount = (p.correctCount || 0) + grant.correctCount;
+          p.answeredCount = (p.answeredCount || 0) + grant.answeredCount;
+          p.appliedGrants[grantId] = true;
+        }
+        return p;
+      });
 
     // Check achievement unlock for practice 20 (idempotent)
-    if (authoritativeProgress >= 20) {
+    if (Number(progressTx.snapshot.val()?.completedAttempts) >= 20) {
+      const unlockedAt = Date.now();
       await adminDb
         .ref(`userAchievements/${uid}/practice_20_${topicId}`)
         .transaction((ua) => {
           if (ua && ua.unlockedAt > 0) return ua;
           return {
             progress: 20,
-            unlockedAt: now,
+            unlockedAt,
             ruleVersion: "v1",
           };
         });

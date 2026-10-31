@@ -208,12 +208,12 @@ async function main() {
     {
       title: "Grammar Master",
       description: "Complete 20 Grammar sessions",
-      status: "active",
+      status: "published",
     },
     {
       title: "Vocabulary Master",
       description: "Complete 20 Vocabulary sessions",
-      status: "active",
+      status: "published",
     },
   ];
 

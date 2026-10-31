@@ -207,8 +207,8 @@ export const getUserDashboard = onCall(
 
         const definition = value as Record<string, unknown>;
 
-        // Chi hien thi thanh tich dang hoat dong
-        if (definition.status !== "active") {
+        // Achievement definitions use the content publication status.
+        if (definition.status !== "published") {
           return [];
         }
 
