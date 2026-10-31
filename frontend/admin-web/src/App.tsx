@@ -27,8 +27,9 @@ import { AdminContext } from './context'
 import { useDebounced, useResource, useRoute } from './hooks'
 import { Avatar, Empty, ErrorState, Field, FormError, Loading, Modal } from './components'
 import { dateTime, defaultRange, message } from './lib'
-import { FirebaseSignIn } from './firebase/SignIn'
-import type { AuthGateway } from './firebase/auth'
+import { SignInForm } from './firebase/SignIn'
+import type { AuthGateway, FirebaseSession } from './firebase/auth'
+import { useAdminAuth, type AdminAuthController } from './firebase/useAdminAuth'
 const Dashboard = lazy(() => import('./pages/Overview').then((m) => ({ default: m.Dashboard })))
 const Analytics = lazy(() => import('./pages/Overview').then((m) => ({ default: m.Analytics })))
 const UsersPage = lazy(() => import('./pages/Users').then((m) => ({ default: m.UsersPage })))
@@ -42,30 +43,7 @@ const navigation = [
   { id: 'battles', label: 'Battles', icon: Swords },
   { id: 'analytics', label: 'Analytics', icon: ChartNoAxesCombined },
 ]
-const sessionKey = 'english-battle.admin.demo-session'
-function hasSession() {
-  try {
-    return sessionStorage.getItem(sessionKey) === 'demo'
-  } catch {
-    return false
-  }
-}
-function rememberSession(active: boolean) {
-  try {
-    if (active) sessionStorage.setItem(sessionKey, 'demo')
-    else sessionStorage.removeItem(sessionKey)
-  } catch {
-    /* The session remains in memory. */
-  }
-}
-
-function Login({
-  onDemo,
-  loadGateway,
-}: {
-  onDemo: () => void
-  loadGateway?: () => Promise<AuthGateway>
-}) {
+function Login({ auth }: { auth: AdminAuthController }) {
   return (
     <main className="login-page">
       <section className="login-story">
@@ -104,7 +82,7 @@ function Login({
       </section>
       <section className="login-form-wrap">
         <div className="login-form">
-          <FirebaseSignIn onDemo={onDemo} loadGateway={loadGateway} />
+          <SignInForm auth={auth} />
         </div>
       </section>
     </main>
@@ -118,10 +96,51 @@ export default function App({
   api?: AdminService
   authLoader?: () => Promise<AuthGateway>
 }) {
+  const auth = useAdminAuth(authLoader)
+  if (!auth.session?.isAdmin)
+    return (
+      <Login
+        auth={{
+          ...auth,
+          signIn: (email, password) => {
+            window.location.hash = '/dashboard'
+            return auth.signIn(email, password)
+          },
+          refresh: () => {
+            window.location.hash = '/dashboard'
+            return auth.refresh()
+          },
+        }}
+      />
+    )
+  return (
+    <AdminWorkspace
+      key={auth.session.uid}
+      api={api}
+      session={auth.session}
+      onSignOut={auth.signOut}
+      authBusy={auth.busy}
+      authError={auth.error}
+    />
+  )
+}
+
+function AdminWorkspace({
+  api,
+  session,
+  onSignOut,
+  authBusy,
+  authError,
+}: {
+  api: AdminService
+  session: FirebaseSession
+  onSignOut: () => Promise<void>
+  authBusy: boolean
+  authError: string
+}) {
   const { path, params, navigate } = useRoute(),
     page = path.slice(1) as PageId
-  const [signedIn, setSignedIn] = useState(hasSession),
-    [range, setRange] = useState(defaultRange),
+  const [range, setRange] = useState(defaultRange),
     [mobileNav, setMobileNav] = useState(false)
   const [notice, setNotice] = useState<{ text: string; error: boolean; id: number } | null>(null),
     [panel, setPanel] = useState<'profile' | 'audit' | 'help' | 'reset' | 'denied' | null>(null)
@@ -176,29 +195,17 @@ export default function App({
     window.scrollTo?.(0, 0)
   }, [path, page])
   const signOut = () => {
-    rememberSession(false)
-    setSignedIn(false)
     setPanel(null)
     setPopover(null)
+    void onSignOut()
   }
   const go = (target: string) => {
     navigate(target)
     setMobileNav(false)
     setPopover(null)
   }
-  if (!signedIn)
-    return (
-      <Login
-        loadGateway={authLoader}
-        onDemo={() => {
-          rememberSession(true)
-          setSignedIn(true)
-          navigate('/dashboard')
-        }}
-      />
-    )
   const unread = notifications.data?.filter((n) => !n.read).length || 0,
-    name = profile.data?.name || 'Administrator'
+    name = session.name || session.email || 'Administrator'
   return (
     <AdminContext.Provider value={{ api, toast, navigate: go, range, setRange }}>
       <div className="app-layout">
@@ -391,7 +398,7 @@ export default function App({
               <div className="header-popover account-popover">
                 <div className="account-info">
                   <strong>{name}</strong>
-                  <small>{profile.data?.email}</small>
+                  <small>{session.email}</small>
                 </div>
                 {[
                   {
@@ -405,6 +412,7 @@ export default function App({
                 ].map((item) => (
                   <button
                     key={item.label}
+                    disabled={authBusy && item.label === 'Sign out'}
                     onClick={() => {
                       setPopover(null)
                       item.action()
@@ -417,6 +425,11 @@ export default function App({
               </div>
             )}
           </header>
+          {authError && (
+            <p role="alert" className="storage-warning">
+              {authError}
+            </p>
+          )}
           {!online && (
             <div className="offline-banner" role="status">
               You’re offline. This demo continues to use data saved in your browser.
@@ -481,7 +494,7 @@ export default function App({
       {panel === 'profile' && (
         <ProfileDialog
           api={api}
-          name={name}
+          name={profile.data?.name || name}
           email={profile.data?.email || ''}
           onClose={() => setPanel(null)}
           onReset={() => setPanel('reset')}
@@ -491,7 +504,7 @@ export default function App({
       {panel === 'help' && (
         <Modal
           title="About this preview"
-          subtitle="Frontend only · no backend calls"
+          subtitle="Verified admin access · Sample business data"
           onClose={() => setPanel(null)}
         >
           <div className="modal-body prose">
@@ -500,9 +513,9 @@ export default function App({
               preserves demo data.
             </p>
             <p>
-              User accounts, moderation and publishing in this demo do not change Firebase. Real
-              Firebase sign-in is available separately on the login screen. Listening uploads are
-              stored locally for preview, with a 2 MB limit.
+              Your administrator access is verified through Firebase and the server. User accounts,
+              moderation and publishing on these sample pages do not change Firebase. Listening
+              uploads are stored locally for preview, with a 2 MB limit.
             </p>
             <p>
               Use the account menu to view an audit log or reset the sample data. A service contract

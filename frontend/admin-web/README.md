@@ -1,6 +1,6 @@
 # English Battle — Web admin
 
-Frontend quản trị React + TypeScript + Vite, chạy độc lập với Gradle/Android. Đã thêm cấu hình Firebase Web và SDK đăng nhập email/mật khẩu. Phạm vi vẫn **chỉ frontend**: chưa viết backend hoặc API quản trị, không sửa Rules, không đọc/ghi dữ liệu nghiệp vụ Firebase.
+Frontend quản trị React + TypeScript + Vite, chạy độc lập với Gradle/Android. Đăng nhập bằng Firebase Auth, provision qua Callable BE1 `ensureUserProfile`, sau đó xác nhận quyền qua HTTP `getAdminSession`. Các trang nghiệp vụ vẫn dùng `MockAdminService`, chưa ghi dữ liệu quản trị lên Firebase.
 
 ## Chạy trên máy của bạn
 
@@ -11,7 +11,7 @@ npm ci
 npm run dev
 ```
 
-Mở **http://127.0.0.1:5173/**. Đăng nhập bằng tài khoản Firebase thật để kiểm tra phiên xác thực; bấm **Open demo workspace** để xem các trang quản trị bằng dữ liệu mẫu. Nếu đã cài thư viện, chỉ cần `npm run dev`.
+Mở **http://127.0.0.1:5173/**. Chỉ tài khoản được server xác nhận admin mới mở workspace; không có nút bỏ qua xác thực. Nếu đã cài thư viện, chỉ cần `npm run dev`. Cần chạy server tại `Backend/server` và BE1 Functions tương ứng.
 
 ## Firebase Web đã cấu hình
 
@@ -21,13 +21,15 @@ Cấu hình người dùng cung cấp nằm trong [`src/firebase/config.ts`](src
 
 1. Trong Firebase Console → **Authentication → Sign-in method**, bật **Email/Password** nếu chưa bật.
 2. Dùng tài khoản đã có trong **Authentication → Users**, hoặc tạo tài khoản thử tại đó. Nhập mật khẩu trực tiếp trên trang đăng nhập; không gửi mật khẩu vào chat hoặc file cấu hình.
-3. Chạy web và bấm **Sign in**. Khi thành công, trang hiển thị email, UID, project và trạng thái claim `admin`.
-4. Nếu chưa được cấp claim `admin: true`, màn hình hiển thị **Not assigned**. Claim phải được cấp từ server tin cậy; đăng ký Web App hoặc tạo tài khoản Auth không tự cấp quyền admin.
-5. Nếu claim có sẵn, màn hình vẫn thông báo API quản trị chưa triển khai; không tự mở dữ liệu mô phỏng thành dữ liệu thật. Quyền thật phải tiếp tục được backend và Rules xác thực.
+3. UID phải được provision qua BE1; người quản trị tin cậy cấp claim bằng công cụ trong `Backend/server`. Không có thao tác tự cấp admin từ web.
+4. Đăng nhập hoặc Refresh access: web chờ Callable `ensureUserProfile` rồi gửi ID token tới `/api/getAdminSession`. Server kiểm tra cả claim hiện tại, disabled và accountAccess.
+5. Quyền hợp lệ mới mở workspace. Các trang vẫn là dữ liệu mẫu, không phải Admin API thật.
 
-Phiên Firebase dùng `browserSessionPersistence`; ứng dụng không lưu mật khẩu. Có khôi phục phiên trong tab, đăng xuất và làm mới claim. Khi từ phiên Firebase chuyển sang demo, web đăng xuất Firebase trong trình duyệt trước. Nếu báo `auth/unauthorized-domain`, thêm domain đang chạy (`127.0.0.1` hoặc `localhost`) trong **Authentication → Settings → Authorized domains**.
+Phiên Firebase dùng `browserSessionPersistence`; ứng dụng không lưu mật khẩu. Có khôi phục phiên trong tab, đăng xuất và làm mới claim. Nếu báo `auth/unauthorized-domain`, kiểm tra Authorized domains của project.
 
-Database URL đã cấu hình đúng vùng `asia-southeast1`; Rules deny-all giữ nguyên. Không bật Analytics, Messaging hoặc upload Storage tự động chỉ vì cấu hình có các trường tương ứng.
+Project/Database giữ cấu hình hiện có, vùng `asia-southeast1`. Rules vẫn default-deny, bổ sung catalog published cho user active. Không tự bật Analytics, Messaging hoặc Storage.
+
+Trong production, cấu hình `VITE_BACKEND_BASE_URL` là HTTPS và cho phép origin web trong `ADMIN_ORIGINS`. Không đưa Admin SDK key vào web. Xem `Backend/server/README.md` cho ownership, bootstrap admin và test Emulator; quá trình tích hợp không deploy Rules/Auth policy.
 
 Giao diện dùng tiếng Anh như 5 ảnh thiết kế. Font Inter và icon được đóng gói cục bộ, không cần gọi CDN.
 

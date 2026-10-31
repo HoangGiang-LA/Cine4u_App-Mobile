@@ -17,6 +17,7 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.text.input.*
 import androidx.compose.ui.unit.*
 import com.englishbattle.app.R
+import com.englishbattle.app.data.PasswordPolicy
 
 @Composable fun SplashScreen(start: () -> Unit) {
     BoxWithConstraints(Modifier.fillMaxSize().background(Brush.verticalGradient(listOf(Color(0xFFB8E3F9), Color(0xFFF2FBFF))))) {
@@ -44,10 +45,14 @@ import com.englishbattle.app.R
 }
 
 @Composable fun AuthField(value: String, change: (String) -> Unit, placeholder: String, icon: ImageVector,
-    password: Boolean = false, enabled: Boolean = true) {
+    password: Boolean = false, enabled: Boolean = true, supportingText: String? = null, isError: Boolean = false) {
     var visible by remember { mutableStateOf(false) }
     OutlinedTextField(value, change, Modifier.fillMaxWidth(), enabled = enabled,
         placeholder = { Text(placeholder, color = Muted, fontSize = 14.sp) }, singleLine = true,
+        isError = isError,
+        supportingText = supportingText?.let { message -> {
+            Text(message, color = if (isError) MaterialTheme.colorScheme.error else Muted)
+        } },
         leadingIcon = { Icon(icon, null, Modifier.size(20.dp), tint = Muted) },
         trailingIcon = if (password) { { IconButton({ visible = !visible }) {
             Icon(if (visible) Icons.Outlined.VisibilityOff else Icons.Outlined.Visibility,
@@ -67,8 +72,12 @@ import com.englishbattle.app.R
     var password by remember(route) { mutableStateOf("") }
     var confirm by remember(route) { mutableStateOf("") }
     var error by rememberSaveable(route) { mutableStateOf<String?>(null) }
+    var attempted by remember(route) { mutableStateOf(false) }
     val login = route == Route.Login
     val forgot = route == Route.Forgot
+    val register = route == Route.Register
+    val passwordInvalid = register && (password.isNotEmpty() || attempted) && !PasswordPolicy.isValid(password)
+    val passwordHint = if (register && (password.isEmpty() || passwordInvalid)) PasswordPolicy.MESSAGE else null
     var googleNotice by remember { mutableStateOf(false) }
     Column(Modifier.fillMaxSize().background(Color.White).verticalScroll(rememberScrollState()).padding(24.dp),
         horizontalAlignment = Alignment.CenterHorizontally) {
@@ -88,18 +97,23 @@ import com.englishbattle.app.R
         Column(verticalArrangement = Arrangement.spacedBy(12.dp)) {
         if (!login && !forgot) AuthField(name, { name = it }, "Tên hiển thị", Icons.Outlined.PersonOutline, enabled = !state.busy)
         AuthField(email, { email = it; error = null; dismiss() }, "Email", Icons.Outlined.Email, enabled = !state.busy)
-        if (!forgot) AuthField(password, { password = it; error = null; dismiss() }, "Mật khẩu", Icons.Outlined.Lock, true, !state.busy)
+        if (!forgot) AuthField(password, { password = it; error = null; dismiss() }, "Mật khẩu", Icons.Outlined.Lock,
+            true, !state.busy, supportingText = passwordHint, isError = passwordInvalid)
         if (!login && !forgot) AuthField(confirm, { confirm = it }, "Nhập lại mật khẩu", Icons.Outlined.Lock, true, !state.busy)
         }
         if (login) TextButton({ dismiss(); go(Route.Forgot) }, Modifier.align(Alignment.End), enabled = !state.busy) { Text("Quên mật khẩu?") }
-        (error ?: state.error)?.let { Text(it, color = MaterialTheme.colorScheme.error) }
+        (error ?: state.error)?.takeUnless { register && passwordHint == it }?.let {
+            Text(it, color = MaterialTheme.colorScheme.error)
+        }
         state.message?.let { Panel(color = Mint) { Text(it) } }
         if (state.busy) LinearProgressIndicator(Modifier.fillMaxWidth())
         Spacer(Modifier.height(if (login || forgot) 16.dp else 56.dp))
         Primary(if (state.busy) "Đang xử lý..." else if (forgot) "Gửi liên kết" else if (login) "Đăng nhập" else "Đăng ký", enabled = !state.busy) {
+            attempted = true
             error = when {
                 !android.util.Patterns.EMAIL_ADDRESS.matcher(email.trim()).matches() -> "Vui lòng nhập email hợp lệ."
-                !forgot && password.length < 6 -> "Mật khẩu cần ít nhất 6 ký tự."
+                register && !PasswordPolicy.isValid(password) -> PasswordPolicy.MESSAGE
+                login && password.length < 6 -> "Mật khẩu cần ít nhất 6 ký tự."
                 !login && !forgot && name.trim().length !in 2..50 -> "Tên hiển thị cần từ 2 đến 50 ký tự."
                 !login && !forgot && password != confirm -> "Mật khẩu nhập lại chưa khớp."
                 else -> null

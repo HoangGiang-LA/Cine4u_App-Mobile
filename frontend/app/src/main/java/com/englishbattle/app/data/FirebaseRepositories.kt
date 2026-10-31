@@ -27,6 +27,7 @@ class FirebaseAuthRepository(private val auth: FirebaseAuth = FirebaseAuth.getIn
     override val users: Flow<UserIdentity?> = combine(authUsers, profileUpdates) { _, _ -> identity() }.distinctUntilChanged()
     override suspend fun signIn(email: String, password: String) { withTimeout(20_000) { auth.signInWithEmailAndPassword(email, password).await() } }
     override suspend fun signUp(name: String, email: String, password: String) {
+        if (!PasswordPolicy.isValid(password)) throw UserFacingException(PasswordPolicy.MESSAGE)
         withTimeout(20_000) {
             val user = auth.createUserWithEmailAndPassword(email, password).await().user ?: throw UserFacingException("Không tạo được tài khoản. Vui lòng thử lại.")
             // The account exists even if the optional name update fails. Auth state still owns the session.
@@ -123,10 +124,11 @@ fun friendlyError(error: Throwable): String {
         is UserFacingException -> error.message.orEmpty()
         is FirebaseNetworkException, is TimeoutCancellationException -> "Kết nối bị gián đoạn hoặc phản hồi quá lâu. Kiểm tra mạng và thử lại."
         is FirebaseTooManyRequestsException -> "Bạn thao tác quá nhiều lần. Vui lòng đợi một lúc rồi thử lại."
-        is FirebaseAuthWeakPasswordException -> "Mật khẩu chưa đủ mạnh. Hãy dùng ít nhất 6 ký tự."
+        is FirebaseAuthWeakPasswordException -> PasswordPolicy.MESSAGE
         is FirebaseAuthUserCollisionException -> "Email đã được sử dụng. Hãy đăng nhập hoặc đặt lại mật khẩu."
         is FirebaseAuthInvalidCredentialsException, is FirebaseAuthInvalidUserException -> "Email hoặc mật khẩu không đúng, hoặc tài khoản không còn khả dụng."
         is FirebaseAuthException -> when (error.errorCode) {
+            "ERROR_PASSWORD_DOES_NOT_MEET_REQUIREMENTS", "ERROR_WEAK_PASSWORD" -> PasswordPolicy.MESSAGE
             "ERROR_OPERATION_NOT_ALLOWED" -> "Phương thức đăng nhập này chưa được bật. Vui lòng thử lại sau."
             "ERROR_REQUIRES_RECENT_LOGIN" -> "Vui lòng đăng nhập lại để thực hiện thay đổi này."
             else -> "Không hoàn tất được xác thực. Vui lòng kiểm tra thông tin và thử lại."

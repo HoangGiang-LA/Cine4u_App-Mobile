@@ -14,6 +14,17 @@ const session: FirebaseSession = {
 }
 
 describe('Firebase Web configuration and sign-in', () => {
+  it('explains a failed sign-in module import and offers a page reload', async () => {
+    const loadGateway = async () => {
+      throw new TypeError(
+        'Failed to fetch dynamically imported module: http://localhost/src/firebase/client.ts',
+      )
+    }
+    render(<FirebaseSignIn loadGateway={loadGateway} />)
+    expect(await screen.findByRole('alert')).toHaveTextContent('Reload this page')
+    expect(screen.getByRole('button', { name: 'Reload page' })).toBeEnabled()
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled()
+  })
   it('preserves typed credentials when an initially signed-out session finishes loading', async () => {
     const auth = createAuthStub(),
       user = userEvent.setup()
@@ -25,7 +36,7 @@ describe('Firebase Web configuration and sign-in', () => {
         return () => {}
       },
     })
-    render(<FirebaseSignIn loadGateway={loadGateway} onDemo={() => {}} />)
+    render(<FirebaseSignIn loadGateway={loadGateway} />)
     await user.type(screen.getByLabelText('Email address'), session.email)
     await user.type(screen.getByLabelText('Password'), 'not-a-real-password')
     act(() => publishInitial?.())
@@ -44,16 +55,13 @@ describe('Firebase Web configuration and sign-in', () => {
     expect(sessionFromClaims(user, { admin: true }).isAdmin).toBe(true)
     expect(sessionFromClaims(user, {}).isAdmin).toBe(false)
   })
-  it('restores a signed-in session without opening a demo or live admin workspace', async () => {
-    const auth = createAuthStub(session),
-      onDemo = vi.fn()
-    render(<FirebaseSignIn loadGateway={auth.load} onDemo={onDemo} />)
-    await screen.findByRole('heading', { name: 'Firebase account connected' })
-    expect(screen.getByText('Not assigned')).toBeVisible()
+  it('keeps a restored non-admin account outside the workspace', async () => {
+    const auth = createAuthStub(session)
+    render(<FirebaseSignIn loadGateway={auth.load} />)
+    await screen.findByRole('heading', { name: 'Administrator access required' })
     expect(screen.getByText('test@example.test')).toBeVisible()
-    expect(screen.getByText(/Data access has not been tested/)).toBeVisible()
     expect(screen.queryByRole('navigation')).not.toBeInTheDocument()
-    expect(onDemo).not.toHaveBeenCalled()
+    expect(screen.queryByRole('button', { name: 'Open demo workspace' })).not.toBeInTheDocument()
   })
   it('signs in through the gateway, clears the password and refreshes permission claims', async () => {
     const auth = createAuthStub(),
@@ -61,18 +69,17 @@ describe('Firebase Web configuration and sign-in', () => {
     vi.mocked(auth.gateway.signIn).mockImplementation(async () => {
       auth.emit(session)
     })
-    render(<FirebaseSignIn loadGateway={auth.load} onDemo={() => {}} />)
+    render(<FirebaseSignIn loadGateway={auth.load} />)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled())
     await user.type(screen.getByLabelText('Email address'), session.email)
     await user.type(screen.getByLabelText('Password'), 'not-a-real-password')
     await user.click(screen.getByRole('button', { name: 'Sign in' }))
-    await screen.findByRole('heading', { name: 'Firebase account connected' })
+    await screen.findByRole('heading', { name: 'Administrator access required' })
     expect(auth.gateway.signIn).toHaveBeenCalledWith(session.email, 'not-a-real-password')
     vi.mocked(auth.gateway.refresh).mockResolvedValue({ ...session, isAdmin: true })
     await user.click(screen.getByRole('button', { name: 'Refresh access' }))
-    await screen.findByText('Detected in the current token')
-    expect(screen.getByText(/Live management pages still require backend APIs/)).toBeVisible()
-    await user.click(screen.getByRole('button', { name: 'Sign out of Firebase' }))
+    await screen.findByRole('heading', { name: 'Administrator access verified' })
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
     await screen.findByRole('heading', { name: 'Welcome back' })
     expect(screen.getByLabelText('Password')).toHaveValue('')
   })
@@ -80,7 +87,7 @@ describe('Firebase Web configuration and sign-in', () => {
     const auth = createAuthStub(),
       user = userEvent.setup()
     vi.mocked(auth.gateway.signIn).mockRejectedValue({ code: 'auth/operation-not-allowed' })
-    render(<FirebaseSignIn loadGateway={auth.load} onDemo={() => {}} />)
+    render(<FirebaseSignIn loadGateway={auth.load} />)
     await waitFor(() => expect(screen.getByRole('button', { name: 'Sign in' })).toBeEnabled())
     await user.type(screen.getByLabelText('Email address'), session.email)
     await user.type(screen.getByLabelText('Password'), 'not-a-real-password')
@@ -92,37 +99,29 @@ describe('Firebase Web configuration and sign-in', () => {
     expect(JSON.stringify(sessionStorage)).not.toContain('not-a-real-password')
     expect(authError({ code: 'auth/network-request-failed' })).toContain('connection')
   })
-  it('signs out of Firebase before entering demo and does not continue if sign-out fails', async () => {
+  it('keeps the session on sign-out failure and allows retry', async () => {
     const auth = createAuthStub(session),
-      user = userEvent.setup(),
-      onDemo = vi.fn()
-    render(<FirebaseSignIn loadGateway={auth.load} onDemo={onDemo} />)
-    await screen.findByRole('heading', { name: 'Firebase account connected' })
+      user = userEvent.setup()
+    render(<FirebaseSignIn loadGateway={auth.load} />)
+    await screen.findByRole('heading', { name: 'Administrator access required' })
     vi.mocked(auth.gateway.signOut).mockRejectedValueOnce({ code: 'auth/network-request-failed' })
-    await user.click(screen.getByRole('button', { name: 'Open demo workspace' }))
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
     await screen.findByRole('alert')
-    expect(onDemo).not.toHaveBeenCalled()
-    await user.click(screen.getByRole('button', { name: 'Open demo workspace' }))
-    await waitFor(() => expect(onDemo).toHaveBeenCalledTimes(1))
+    expect(screen.getByRole('heading', { name: 'Administrator access required' })).toBeVisible()
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+    await screen.findByRole('heading', { name: 'Welcome back' })
     expect(auth.gateway.signOut).toHaveBeenCalledTimes(2)
   })
-  it('returns to sign-in when the session ends and allows demo when SDK setup fails', async () => {
-    const auth = createAuthStub(session),
-      user = userEvent.setup(),
-      onDemo = vi.fn()
-    const rendered = render(<FirebaseSignIn loadGateway={auth.load} onDemo={onDemo} />)
-    await screen.findByRole('heading', { name: 'Firebase account connected' })
+  it('returns to sign-in when the session ends and has no preview bypass on SDK failure', async () => {
+    const auth = createAuthStub(session)
+    const rendered = render(<FirebaseSignIn loadGateway={auth.load} />)
+    await screen.findByRole('heading', { name: 'Administrator access required' })
     act(() => auth.emit(null))
     await screen.findByRole('heading', { name: 'Welcome back' })
     rendered.unmount()
-    render(
-      <FirebaseSignIn
-        loadGateway={() => Promise.reject(new Error('SDK unavailable'))}
-        onDemo={onDemo}
-      />,
-    )
+    render(<FirebaseSignIn loadGateway={() => Promise.reject(new Error('SDK unavailable'))} />)
     await screen.findByRole('alert')
-    await user.click(screen.getByRole('button', { name: 'Open demo workspace' }))
-    expect(onDemo).toHaveBeenCalledTimes(1)
+    expect(screen.queryByRole('button', { name: 'Open demo workspace' })).not.toBeInTheDocument()
+    expect(screen.getByRole('button', { name: 'Sign in' })).toBeDisabled()
   })
 })

@@ -78,8 +78,8 @@ class AuthViewModel(app: Application) : AndroidViewModel(app) {
     }
 }
 
-class CatalogViewModel(app: Application) : AndroidViewModel(app) {
-    private val container = (app as EnglishBattleApplication).container
+class CatalogViewModel(app: Application, private val catalogRepository: (DataMode) -> CatalogRepository) : AndroidViewModel(app) {
+    constructor(app: Application) : this(app, { mode -> (app as EnglishBattleApplication).container.catalog(mode) })
     private val _state = MutableStateFlow(LoadState<Catalog>())
     val state = _state.asStateFlow()
     private var job: Job? = null
@@ -91,12 +91,13 @@ class CatalogViewModel(app: Application) : AndroidViewModel(app) {
         _state.value = LoadState(loading = true)
         job = viewModelScope.launch {
             try {
-                // A listener stays active after the initial snapshot. Timeout only the first response.
-                val stream = container.catalog(mode).observe().produceIn(this)
-                try {
-                    _state.value = LoadState(data = withTimeout(15_000) { stream.receive() })
-                    for (data in stream) _state.value = LoadState(data)
-                } finally { stream.cancel() }
+                supervisorScope {
+                    val stream = catalogRepository(mode).observe().produceIn(this)
+                    try {
+                        _state.value = LoadState(data = withTimeout(15_000) { stream.receive() })
+                        for (data in stream) _state.value = LoadState(data)
+                    } finally { stream.cancel() }
+                }
             } catch (e: Exception) { _state.value = LoadState(error = friendlyError(e)) }
         }
     }
@@ -127,7 +128,6 @@ class UserDataViewModel(app: Application) : AndroidViewModel(app) {
         dashboardJob = scope.launch {
             try {
                 val repo = container.game(mode)
-                repo.ensureProfile()
                 _dashboard.value = LoadState(repo.dashboard())
             } catch (e: Exception) { _dashboard.update { it.copy(loading = false, error = friendlyError(e)) } }
         }
