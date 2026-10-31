@@ -14,7 +14,7 @@ async function fixture(run, overrides = {}, options = {}) {
     ...overrides,
   }, {origins: ['http://localhost:5173'], logError: () => {}, ...options})
   await new Promise(resolve => server.listen(0, '127.0.0.1', resolve))
-  const url = `http://127.0.0.1:${server.address().port}/api/ensureUserProfile`
+  const url = `http://127.0.0.1:${server.address().port}/api/getAdminSession`
   try { await run(url, calls) } finally { await new Promise(resolve => server.close(resolve)) }
 }
 

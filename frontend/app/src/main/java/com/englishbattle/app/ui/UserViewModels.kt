@@ -10,6 +10,7 @@ import androidx.lifecycle.viewModelScope
 import com.englishbattle.app.BuildConfig
 import com.englishbattle.app.EnglishBattleApplication
 import com.englishbattle.app.data.*
+import com.google.firebase.functions.FirebaseFunctionsException
 import kotlinx.coroutines.*
 import kotlinx.coroutines.channels.awaitClose
 import kotlinx.coroutines.flow.*
@@ -90,9 +91,7 @@ class CatalogViewModel(app: Application, private val catalogRepository: (DataMod
         _state.value = LoadState(loading = true)
         job = viewModelScope.launch {
             try {
-                // Isolate producer failures so receive() can report them without cancelling this job.
                 supervisorScope {
-                    // A listener stays active after the initial snapshot. Timeout only the first response.
                     val stream = catalogRepository(mode).observe().produceIn(this)
                     try {
                         _state.value = LoadState(data = withTimeout(15_000) { stream.receive() })
@@ -210,10 +209,10 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
         _ticket.value = LoadState(t)
         if (t.status in listOf("cancelled", "expired", "failed")) prefs.edit().remove("ticket-$key").apply()
     }
-    private fun definitiveFailure(e: Exception) = e is BackendException && e.code in listOf(
-        BackendException.Code.INVALID_ARGUMENT, BackendException.Code.FAILED_PRECONDITION,
-        BackendException.Code.PERMISSION_DENIED, BackendException.Code.NOT_FOUND,
-        BackendException.Code.UNIMPLEMENTED, BackendException.Code.ALREADY_EXISTS)
+    private fun definitiveFailure(e: Exception) = e is FirebaseFunctionsException && e.code in listOf(
+        FirebaseFunctionsException.Code.INVALID_ARGUMENT, FirebaseFunctionsException.Code.FAILED_PRECONDITION,
+        FirebaseFunctionsException.Code.PERMISSION_DENIED, FirebaseFunctionsException.Code.NOT_FOUND,
+        FirebaseFunctionsException.Code.UNIMPLEMENTED, FirebaseFunctionsException.Code.ALREADY_EXISTS)
     private fun accept(a: AttemptState) {
         _attempt.value = LoadState(a)
         if (a.status == "active" || a.status == "waiting") prefs.edit().putString("active-$key", a.id).apply()

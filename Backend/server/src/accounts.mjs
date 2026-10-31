@@ -6,16 +6,8 @@ export class ApiError extends Error {
   }
 }
 
-function checkStatus(value) {
-  if (value !== null && value?.status !== 'active') {
-    throw new ApiError('PERMISSION_DENIED', 'Account access is blocked.', {
-      reason: value?.status === 'deleted' ? 'account-deleted' : 'account-banned',
-    })
-  }
-}
-
+/** Read-only authorization. Only the BE1 Callable provisions account records. */
 export function createAccounts(auth, database) {
-  const initializations = new Map()
   async function authenticate(token) {
     try {
       const decoded = await auth.verifyIdToken(token, true)
@@ -36,73 +28,28 @@ export function createAccounts(auth, database) {
 
   async function requireActive(uid) {
     const snapshot = await database.ref(`accountAccess/${uid}`).get()
-    if (!snapshot.exists()) throw new ApiError('FAILED_PRECONDITION', 'Initialize the account first.')
-    checkStatus(snapshot.val())
-  }
-
-  async function provision(user) {
-    const uid = user.uid
-    const accessRef = database.ref(`accountAccess/${uid}`)
-    checkStatus((await accessRef.get()).val())
-    const now = Date.now()
-    const displayName = user.displayName?.trim().slice(0, 50) || 'Người học'
-    const createdAt = Date.parse(user.metadata.creationTime) || now
-    const defaults = {
-      users: {displayCode: `U-${uid}`, displayName, avatarKey: 'default_01', createdAt, updatedAt: now},
-      userSettings: {notificationsEnabled: true, soundVolume: 0.7, language: 'vi', theme: 'light', updatedAt: now},
-      userStats: {rating: 0, matchesPlayed: 0, wins: 0, losses: 0, draws: 0, currentWinStreak: 0, bestWinStreak: 0, updatedAt: now},
-      wallets: {coinBalance: 0, updatedAt: now},
-    }
-    // Per-record transactions preserve existing balances/progress during retries.
-    await Promise.all(Object.entries(defaults).map(([path, value]) =>
-      database.ref(`${path}/${uid}`).transaction(current => current === null ? value : undefined)))
-    // Identity comes from Firebase Auth, never a UID/email/role supplied by a client.
-    await database.ref(`userPrivate/${uid}`).update({
-      email: user.email || '', emailVerified: user.emailVerified,
-      authProviders: Object.fromEntries(user.providerData.map(p => [p.providerId.replaceAll('.', '_'), true])),
-      updatedAt: now,
-    })
-    if (user.displayName) await database.ref(`users/${uid}`).update({displayName, updatedAt: now})
-    // Enable access last. Never overwrite a concurrent ban or account deletion.
-    const result = await accessRef.transaction(current =>
-      current === null ? {status: 'active', updatedAt: now} : undefined)
-    checkStatus(result.snapshot.val())
-    await requireActive(uid)
-  }
-
-  async function ensure(user) {
-    // Share concurrent requests for one UID; transactions still protect other servers.
-    let operation = initializations.get(user.uid)
-    if (!operation) {
-      operation = provision(user)
-      initializations.set(user.uid, operation)
-    }
-    try { await operation } finally {
-      if (initializations.get(user.uid) === operation) initializations.delete(user.uid)
+    if (!snapshot.exists()) throw new ApiError('FAILED_PRECONDITION', 'Initialize the account through the BE1 Callable first.')
+    const access = snapshot.val()
+    if (access?.status !== 'active') {
+      throw new ApiError('PERMISSION_DENIED', 'Account access is blocked.', {
+        reason: access?.status === 'deleted' ? 'account-deleted' : 'account-banned',
+      })
     }
   }
 
-  async function execute(method, data, identity) {
-    const {user, decoded} = identity
-    if (method === 'ensureUserProfile' || method === 'getAdminSession') {
-      if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length) {
-        throw new ApiError('INVALID_ARGUMENT', 'This method accepts no fields.')
-      }
-      if (method === 'getAdminSession' && (decoded.admin !== true || user.customClaims?.admin !== true)) {
-        throw new ApiError('PERMISSION_DENIED', 'Administrator access required.', {reason: 'admin-required'})
-      }
-      await ensure(user)
-      return method === 'ensureUserProfile' ? {serverNow: Date.now()} : {
-        serverNow: Date.now(), uid: user.uid, role: 'admin',
-        displayName: user.displayName || user.email || 'Administrator',
-      }
+  async function execute(method, data, {user, decoded}) {
+    // Deliberately do not expose ensureUserProfile or any learning/admin business API.
+    if (method !== 'getAdminSession') throw new ApiError('NOT_FOUND', 'Endpoint not found.')
+    if (!data || typeof data !== 'object' || Array.isArray(data) || Object.keys(data).length) {
+      throw new ApiError('INVALID_ARGUMENT', 'This method accepts no fields.')
     }
-    await requireActive(user.uid)
-    if (method.startsWith('admin') && (decoded.admin !== true || user.customClaims?.admin !== true)) {
+    if (decoded.admin !== true || user.customClaims?.admin !== true) {
       throw new ApiError('PERMISSION_DENIED', 'Administrator access required.', {reason: 'admin-required'})
     }
-    throw new ApiError('UNIMPLEMENTED', 'This feature is not implemented yet.')
+    await requireActive(user.uid)
+    return {serverNow: Date.now(), uid: user.uid, role: 'admin',
+      displayName: user.displayName || user.email || 'Administrator'}
   }
 
-  return {authenticate, execute, ensure, requireActive}
+  return {authenticate, execute, requireActive}
 }

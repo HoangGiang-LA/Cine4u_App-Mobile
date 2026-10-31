@@ -20,6 +20,7 @@ export async function mockFirebase(page: Page, { admin = true, allowAdmin = true
     firebase: { sign_in_provider: 'password', identities: { email: [email] } },
   })}.local-test-signature`
   let backendChecks = 0
+  const callOrder: string[] = []
   await page.route('https://**/*', (route) => route.abort())
   await page.route('https://identitytoolkit.googleapis.com/**', async (route) => {
     const path = new URL(route.request().url()).pathname
@@ -62,11 +63,25 @@ export async function mockFirebase(page: Page, { admin = true, allowAdmin = true
       return
     }
     backendChecks++
+    callOrder.push('getAdminSession')
     await route.fulfill(
       allowAdmin
         ? { headers, json: { result: { uid, role: 'admin', serverNow: Date.now() } } }
         : { headers, status: 403, json: { error: { status: 'PERMISSION_DENIED' } } },
     )
   })
-  return { email, password, backendChecks: () => backendChecks }
+  await page.route('https://asia-southeast1-englishbattleapp-8d764.cloudfunctions.net/ensureUserProfile', async route => {
+    const headers = {
+      'Access-Control-Allow-Origin': 'http://127.0.0.1:5173',
+      'Access-Control-Allow-Headers': 'Authorization, Content-Type, X-Firebase-GMPID',
+      'Access-Control-Allow-Methods': 'POST, OPTIONS',
+    }
+    if (route.request().method() === 'OPTIONS') {
+      await route.fulfill({status: 204, headers})
+      return
+    }
+    callOrder.push('ensureUserProfile')
+    await route.fulfill({headers, json: {result: {serverNow: Date.now()}}})
+  })
+  return { email, password, backendChecks: () => backendChecks, callOrder }
 }

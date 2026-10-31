@@ -1,101 +1,71 @@
-# Backend riêng cho Firebase Spark
+# Admin authentication server
 
-Node.js + Firebase Admin SDK, chạy trên máy tính hoặc máy chủ riêng. Firebase tiếp tục xử lý đăng ký/đăng nhập email và lưu Realtime Database trong hạn mức Spark. Backend này không triển khai Cloud Functions.
+This HTTP server supplements BE1 Cloud Functions. It exposes only
+`POST /api/getAdminSession` (plus `/health`). It does not provision users,
+implement learning/admin business APIs, or write RTDB records.
 
-Xác nhận trên máy phát triển ngày 30/10/2026: đã cấu hình khóa qua `.env` không được Git theo dõi, kết nối Firebase thật, publish Rules và kiểm tra app tự khởi tạo hồ sơ rồi đọc đủ 4 kỹ năng. Backend local dùng cổng 8080, web admin dùng cổng 5173. Các tiến trình cần được chạy lại sau khi tắt máy; thông tin khóa giữ riêng trên máy chủ.
+## Ownership and request flow
 
-## Luồng tài khoản
+- Android: Firebase Auth SDK → BE1 Callable `ensureUserProfile` → existing
+  Callable dashboard, Practice/Test/Daily and result APIs in `asia-southeast1`.
+- Admin web: Firebase Auth → the same BE1 Callable → HTTP `getAdminSession`.
+- The HTTP server verifies token revocation, disabled status, both current and
+  token boolean admin claims, and `accountAccess/{uid}/status === active`.
+- BE1 owns profile defaults, wallets, settlement and rewards. HTTP authorization
+  never creates, reactivates or changes those records.
+- Admin workspace business pages still use sample data (`MockAdminService`).
 
-1. App đăng ký hoặc đăng nhập bằng Firebase Authentication.
-2. App gửi Firebase ID token đến `POST /api/ensureUserProfile`.
-3. Backend xác minh token, kiểm tra tài khoản bị vô hiệu hóa và trạng thái khóa/xóa.
-4. Backend tạo những bản ghi còn thiếu: `users`, `userPrivate`, `userSettings`, `userStats`, `wallets`.
-5. Sau khi khởi tạo thành công, backend tạo `accountAccess/{uid}/status = active` cho tài khoản mới. Tài khoản bị khóa/xóa không được tự mở lại.
-6. App mới bắt đầu đọc danh mục và mở phần đã đăng nhập.
+## Local server setup
 
-Việc này diễn ra tự động với tài khoản mới và tài khoản Auth đã có từ trước. Gọi lại không đặt lại số dư, rating hoặc tiến độ. UID, email và thông tin nhận dạng lấy từ Firebase Auth. Client không được gửi UID hoặc vai trò để tự cấp quyền.
+Install with `npm ci`. Use `.env.example` as the configuration template; keep
+the actual `.env` and Admin credential file outside Git. Set
+`GOOGLE_APPLICATION_CREDENTIALS` to a private server-side key path. Never place
+this key in Android or web builds. Then run `npm start`.
 
-## Thiết lập một lần để dùng Firebase thật
+`FIREBASE_PROJECT_ID` and `FIREBASE_DATABASE_URL` must identify the same project
+as the app and BE1 Functions. Configure `ADMIN_ORIGINS` explicitly. Internet
+access requires an HTTPS reverse proxy/server; the local process is not a
+public deployment. Web production requires `VITE_BACKEND_BASE_URL=https://…`.
+Android does not use this HTTP URL.
 
-1. Firebase Console → **Project settings → Service accounts → Firebase Admin SDK → Generate new private key**. Lưu file JSON trên máy chạy backend, ví dụ `D:/private/englishbattle-service-account.json`. Đây là khóa riêng của server; không đưa vào app, web hoặc Git và không dán nội dung vào chat.
-2. Trong thư mục này:
+## Grant/revoke admin
 
-```powershell
-Copy-Item .env.example .env
-npm ci
-```
-
-3. Sửa `GOOGLE_APPLICATION_CREDENTIALS` trong `.env` thành đường dẫn tuyệt đối đến file JSON vừa lưu. Project và database URL đã có mẫu cho English Battle.
-4. Chạy backend:
-
-```powershell
-npm start
-```
-
-Kiểm tra `http://127.0.0.1:8080/health` trả `{"status":"ok"}`. Mỗi lần phát triển, cần để tiến trình backend chạy.
-
-5. Publish file `database.rules.json` ở thư mục gốc lên **Realtime Database → Rules**. File này yêu cầu tài khoản active, giới hạn danh mục theo query published và chặn mọi client write. Đây là cấu hình một lần; backend tự tạo quyền user cho các tài khoản về sau.
-6. Chạy lại app Android trong Android Studio. Bản debug mặc định dùng `http://10.0.2.2:8080`, địa chỉ máy tính nhìn từ Android Emulator. Web khi chạy `npm run dev` dùng `http://127.0.0.1:8080`.
-
-Không cần tạo từng UID hoặc sửa database cho từng người đăng ký.
-
-## Mật khẩu tài khoản
-
-Mật khẩu mới phải có ít nhất 8 kí tự, gồm số, chữ hoa và ký tự đặc biệt được Firebase hỗ trợ (ví dụ `!`, `@`, `#`, `_`, `-`). App kiểm tra ngay khi nhập và trước khi tạo tài khoản. Firebase Authentication cũng áp dụng chính sách này khi đăng ký hoặc đặt lại mật khẩu qua email; trang đặt lại do Firebase cung cấp tự hiển thị hướng dẫn của Firebase.
-
-Đã bật chính sách trên project thật ngày 30/10/2026, không bật ép đổi mật khẩu khi đăng nhập. Tài khoản cũ tiếp tục đăng nhập bằng mật khẩu hiện tại; mật khẩu đặt mới phải tuân thủ chính sách.
-
-```powershell
-npm run password-policy -- show
-# Áp dụng cho project trong .env sau khi thiết lập một project mới:
-npm run password-policy -- apply
-```
-
-Lệnh `apply` sao lưu riêng cấu hình mật khẩu vào `build/backups/` (được Git bỏ qua) trước khi cập nhật; không thay đổi cấu hình Auth khác. Quyền admin vẫn được cấp theo UID, không dựa trên độ mạnh mật khẩu.
-
-## Admin
-
-Người đăng ký thông thường không được cấp quyền admin. Chủ dự án cấp quyền cho tài khoản quản trị được chọn từ máy chủ tin cậy:
+The target UID must first be provisioned through BE1 (for example by signing
+in to Android). An authorized server operator can then use:
 
 ```powershell
 npm run admin -- grant FIREBASE_UID
 npm run admin -- revoke FIREBASE_UID
 ```
 
-Lệnh giữ nguyên các custom claims khác. Khi cấp mới, tài khoản cần đăng xuất/đăng nhập lại hoặc bấm **Refresh access**. `POST /api/getAdminSession` kiểm tra token, claim boolean `admin: true` trong hồ sơ Auth hiện tại và trạng thái active. Claim đã thu hồi không được dùng lại qua token cũ. Tài khoản bị khóa/xóa bị từ chối.
+These commands update Auth claims only. Grant requires an active, enabled user;
+revoke is also available for blocked users. Refresh the client's token after
+granting. No role changes happen automatically during startup or login.
 
-Web xác nhận quyền quản trị qua backend rồi mở Dashboard. Các trang nghiệp vụ dùng dữ liệu mẫu trong lúc chờ API quản lý người dùng, câu hỏi, trận đấu và báo cáo. Chỉ phiên admin hợp lệ được mở workspace; không có đường vào demo ở trang đăng nhập.
+The imported password-policy tool is optional operator tooling. It is never
+run automatically; `apply` changes the Firebase project and requires separate
+approval. Android validates new passwords locally without changing cloud policy.
 
-## Địa chỉ server
+## Verification (local Emulator Suite only)
 
-- Android: truyền Gradle property `-PbackendBaseUrl=https://your-server.example` hoặc biến môi trường `ENGLISH_BATTLE_BACKEND_URL`. Bản release yêu cầu HTTPS và phải có URL cấu hình.
-- Điện thoại thật trong mạng LAN: cấu hình `HOST=0.0.0.0`, dùng IP LAN của máy tính cho `backendBaseUrl` khi build debug.
-- Web: đặt `VITE_BACKEND_BASE_URL` trước khi build; bổ sung origin web thật vào `ADMIN_ORIGINS` của backend.
-- Người dùng ngoài mạng LAN cần backend được triển khai ở địa chỉ HTTPS truy cập được. Máy chạy backend cần duy trì hoạt động. Firebase Spark và dịch vụ hosting nếu chọn sau này đều có giới hạn sử dụng; việc chạy local không cung cấp server công khai luôn bật.
-
-## API
-
-Gửi `Authorization: Bearer FIREBASE_ID_TOKEN`, JSON `{"data":{}}`. Hai phương thức tài khoản không nhận các trường tùy ý.
-
-- Thành công: `{"result":{"serverNow":123}}`; `getAdminSession` thêm UID, role và displayName.
-- Thất bại: `{"error":{"status":"PERMISSION_DENIED","message":"...","details":{"reason":"account-banned"}}}`.
-- Các phương thức học/thi đấu chưa triển khai trả `UNIMPLEMENTED`; backend không trả dữ liệu mẫu thay thế.
-
-Các API mới phải lấy danh tính đã xác minh từ middleware và gọi `requireActive` trước khi xử lý. API admin phải kiểm tra cả claim token và claim Auth hiện tại, như `getAdminSession`.
-
-## Kiểm thử
+From the workspace, build BE1 first and run one suite:
 
 ```powershell
-npm run check
-npm test
+npm --prefix Backend/functions run build
+firebase emulators:start --project englishbattleapp-8d764 --only auth,database,functions --config firebase.auth-qa.json
 ```
 
-Kiểm thử Firebase tích hợp từ thư mục gốc, dùng JDK 21+ và Firebase CLI:
+In another terminal:
 
 ```powershell
-.\frontend\verification\node_modules\.bin\firebase.cmd emulators:exec --project demo-english-battle-auth --only auth,database --config firebase.auth-qa.json "npm --prefix Backend/server run test:integration"
+npm --prefix Backend/server run check
+npm --prefix Backend/server test
+$env:FIREBASE_AUTH_EMULATOR_HOST = '127.0.0.1:9099'
+$env:FIREBASE_DATABASE_EMULATOR_HOST = '127.0.0.1:9000'
+npm --prefix Backend/server run test:integration
 ```
 
-Kiểm thử bắt buộc dùng Auth/Database emulator trên loopback và project `demo-`; không dùng khóa thật và không sửa dữ liệu production.
-
-Tài liệu: [Admin SDK](https://firebase.google.com/docs/admin/setup), [xác minh ID token](https://firebase.google.com/docs/auth/admin/verify-id-tokens), [Firebase Spark](https://firebase.google.com/pricing).
+Tests exercise the real local BE1 provisioning Callable before admin checks,
+assert read-only HTTP behavior and validate the merged root Rules. Both Auth
+and Database hosts must be loopback in emulator mode. Do not start another
+suite while the BE1 ports are in use. No deploy is part of these commands.

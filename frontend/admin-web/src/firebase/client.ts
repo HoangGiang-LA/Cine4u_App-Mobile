@@ -10,6 +10,7 @@ import {
   type User,
 } from 'firebase/auth'
 import { getDatabase } from 'firebase/database'
+import { getFunctions, httpsCallable } from 'firebase/functions'
 import { firebaseConfig } from './config'
 import { sessionFromClaims, type AuthGateway, type FirebaseSession } from './auth'
 import { verifyAdminAccess } from './backend'
@@ -20,10 +21,15 @@ export const firebaseApp =
 export const firebaseAuth = getAuth(firebaseApp)
 // Creating the SDK instance does not grant access or read/write data.
 export const firebaseDatabase = getDatabase(firebaseApp)
+const ensureUserProfile = httpsCallable(getFunctions(firebaseApp, 'asia-southeast1'), 'ensureUserProfile')
 
 async function session(user: User, refresh = false): Promise<FirebaseSession> {
   const token = await getIdTokenResult(user, refresh)
-  if (token.claims.admin === true) await verifyAdminAccess(token.token)
+  if (token.claims.admin === true) {
+    // The BE1 Callable is the sole provisioning owner; HTTP only authorizes.
+    await ensureUserProfile({})
+    await verifyAdminAccess(token.token)
+  }
   return sessionFromClaims(user, token.claims)
 }
 

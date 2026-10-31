@@ -6,7 +6,7 @@
   "scripts": {
     "start": "node --env-file-if-exists=.env src/index.mjs",
     "check": "node --check src/index.mjs && node --check src/accounts.mjs && node --check src/http.mjs",
-    "test": "node --test test/http.test.mjs",
+    "test": "node --test test/http.test.mjs test/firebase.test.mjs",
     "test:integration": "node --test --test-timeout=45000 --test-concurrency=1 test/accounts.integration.test.mjs",
     "admin": "node --env-file-if-exists=.env tools/admin-role.mjs",
     "password-policy": "node --env-file-if-exists=.env tools/password-policy.mjs"
