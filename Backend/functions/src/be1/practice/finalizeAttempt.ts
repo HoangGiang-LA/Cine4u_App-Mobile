@@ -1,7 +1,14 @@
 import {HttpsError} from "firebase-functions/v2/https";
 import {adminDb} from "../../config/firebaseAdmin";
-import {buildAttemptResponse, dailyEndsAt, getDateKey, isDailyExpired,
-  normalizeMode, WireAttempt, WireResult} from "./attemptHelper";
+import {
+  buildAttemptResponse,
+  dailyEndsAt,
+  getDateKey,
+  isDailyExpired,
+  normalizeMode,
+  WireAttempt,
+  WireResult,
+} from "./attemptHelper";
 
 export interface FinalizeOutput {
   serverNow: number;
