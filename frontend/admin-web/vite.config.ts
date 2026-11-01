@@ -13,6 +13,6 @@ export default defineConfig({
     restoreMocks: true,
     testTimeout: 10_000,
     css: false,
-    exclude: ['e2e/**', 'node_modules/**'],
+    exclude: ['e2e/**', 'e2e-local/**', 'node_modules/**'],
   },
 })

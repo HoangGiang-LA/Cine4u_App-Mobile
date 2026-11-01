@@ -1,8 +1,13 @@
+import { environment } from './environment'
+
 export async function verifyAdminAccess(token: string) {
   const configured = import.meta.env.VITE_BACKEND_BASE_URL as string | undefined
   const baseUrl = configured || (import.meta.env.DEV ? 'http://127.0.0.1:8080' : '')
   if (!baseUrl) throw { code: 'backend/not-configured' }
   const url = new URL(`${baseUrl.replace(/\/$/, '')}/api/getAdminSession`)
+  if (environment.local && url.origin !== 'http://127.0.0.1:8080') {
+    throw { code: 'emulator/invalid-config' }
+  }
   if (url.protocol !== 'https:' && !(import.meta.env.DEV && url.protocol === 'http:')) {
     throw { code: 'backend/not-configured' }
   }

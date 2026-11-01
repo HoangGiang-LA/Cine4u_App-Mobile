@@ -6,6 +6,12 @@ export function connectFirebase(env = process.env) {
   const projectId = env.FIREBASE_PROJECT_ID
   const databaseURL = env.FIREBASE_DATABASE_URL
   if (!projectId || !databaseURL) throw new Error('Set FIREBASE_PROJECT_ID and FIREBASE_DATABASE_URL in the server environment.')
+  if (env.FIREBASE_LOCAL_MODE === 'true' && (projectId !== 'demo-englishbattle' ||
+      databaseURL !== 'https://demo-englishbattle-default-rtdb.firebaseio.com' ||
+      env.FIREBASE_AUTH_EMULATOR_HOST !== '127.0.0.1:9099' ||
+      env.FIREBASE_DATABASE_EMULATOR_HOST !== '127.0.0.1:9000')) {
+    throw new Error('Local mode requires the demo project and both loopback emulators.')
+  }
   const emulator = Boolean(env.FIREBASE_AUTH_EMULATOR_HOST || env.FIREBASE_DATABASE_EMULATOR_HOST)
   // BE1's existing suite uses its configured project ID. Both services MUST
   // stay on loopback so QA can share that suite without reaching production.

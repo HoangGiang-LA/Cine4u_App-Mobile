@@ -1,5 +1,9 @@
 # Admin authentication server
 
+For the Spark-compatible demo environment (no real credentials), follow
+[the team Emulator guide](../../docs/LOCAL-EMULATOR.md). Start-AdminServer.ps1
+connects only to demo Auth/Database emulators and deliberately skips `.env` loading.
+
 This HTTP server supplements BE1 Cloud Functions. It exposes only
 `POST /api/getAdminSession` (plus `/health`). It does not provision users,
 implement learning/admin business APIs, or write RTDB records.
@@ -17,6 +21,9 @@ implement learning/admin business APIs, or write RTDB records.
 
 ## Local server setup
 
+For this HTTP server alone use Node.js **22.9+** (`npm start` uses
+`--env-file-if-exists`, introduced in 22.9). The full local Emulator workflow
+requires **Node.js 24 LTS**, matching the pre-existing Functions engine.
 Install with `npm ci`. Use `.env.example` as the configuration template; keep
 the actual `.env` and Admin credential file outside Git. Set
 `GOOGLE_APPLICATION_CREDENTIALS` to a private server-side key path. Never place

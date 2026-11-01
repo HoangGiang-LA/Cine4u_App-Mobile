@@ -32,7 +32,7 @@ describe('BE1 provisioning ownership and admin HTTP authorization', () => {
   })
   it('does not authorize if Callable provisioning fails', async () => {
     mocks.provision.mockRejectedValueOnce(new Error('profile denied'))
-    await expect(authGateway.refresh()).rejects.toThrow('profile denied')
+    await expect(authGateway.refresh()).rejects.toMatchObject({code: 'profile/unavailable'})
     expect(mocks.verify).not.toHaveBeenCalled()
   })
   it('keeps non-admin users outside admin APIs', async () => {

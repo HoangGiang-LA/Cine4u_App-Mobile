@@ -1,13 +1,13 @@
 # Hợp đồng frontend admin — chuẩn bị tích hợp, chưa có backend
 
-Nguồn chuẩn là [`src/domain.ts`](../src/domain.ts): `AdminService`, model, input và kiểu kết quả. `src/data/mock-service.ts` là adapter nghiệp vụ hiện tại. UI lấy service qua `AdminContext`; `App` nhận prop `api` để thay adapter. Không có endpoint hoặc Cloud Function nào được triển khai trong phần việc này. Firebase Web đã cấu hình; màn hình đăng nhập dùng SDK Auth thật nhưng chỉ mở trang trạng thái tài khoản/quyền, chưa kết nối service quản trị.
+Nguồn chuẩn là [`src/domain.ts`](../src/domain.ts): `AdminService`, model, input và kiểu kết quả. `src/data/mock-service.ts` là adapter nghiệp vụ hiện tại. UI lấy service qua `AdminContext`; `App` nhận prop `api` để thay adapter. Đăng nhập dùng Firebase Auth, BE1 Callable `ensureUserProfile`, rồi HTTP `POST /api/getAdminSession` để xác minh quyền trước khi mở workspace. Các API nghiệp vụ AdminService vẫn chưa được tích hợp. Môi trường local dùng cùng luồng qua Emulator; xem [hướng dẫn](../../../docs/LOCAL-EMULATOR.md).
 
 Cập nhật 25/10/2026: [ánh xạ máy đọc](../../contracts/admin.v1.json) bao phủ đủ 22 phương thức: 21 callable đề xuất trong region `asia-southeast1` và `reset` chỉ demo. Mọi response có `serverNow` epoch ms và trường payload ghi trong file; mutation có payloadKey null chỉ trả `serverNow`. Kiểm tra tên phương thức tự động ở [verification](../../verification/README.md). Chưa có adapter transport thật. Giao diện theo Figma giữ nguyên khi thay service.
 
 ## Nguyên tắc tích hợp
 
 1. Web App đã đăng ký trong project Firebase hiện có, cấu hình nằm ở `src/firebase/config.ts`; không cần database riêng cho admin.
-2. Firebase Auth đã có đăng nhập, phục hồi phiên, đăng xuất và refresh claim `admin: true` trong `src/firebase/`. Bước kế tiếp là nối phiên đã xác thực với backend/API thật; quyền admin phải do server tin cậy cấp và được kiểm tra lại tại server. Màn hình thông tin claim hiện tại không thay thế việc phân quyền của backend/Rules.
+2. Firebase Auth đã có đăng nhập, phục hồi phiên, đăng xuất và refresh claim `admin: true` trong `src/firebase/`. HTTP server đã kiểm tra token, quyền hiện tại và trạng thái accountAccess; BE1 Callable là chủ sở hữu provisioning. Bước kế tiếp cho nghiệp vụ là triển khai adapter AdminService; không chuyển BE1 learning API sang HTTP hoặc tự cấp quyền từ client.
 3. Viết một adapter triển khai các phương thức dưới đây. Chuyển `mode` sang union phù hợp khi thêm adapter thật; loại bỏ/bật tắt rõ demo trước phát hành. Không chuyển sang demo khi API thật lỗi.
 4. Danh sách dùng API có giới hạn, bộ lọc và phân trang. Các số tổng hợp/active users do backend tính. Không thay mock bằng lệnh đọc toàn bộ root RTDB để lọc trên web.
 5. Quyền ghi tài khoản, trạng thái, đáp án, xuất bản và dữ liệu vận hành nằm ở backend. Không đưa Firebase Admin SDK, khóa riêng hoặc service-account vào bundle.
