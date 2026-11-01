@@ -12,6 +12,41 @@ internal fun JSONObject.stringMap(key: String): Map<String, Int> = optJSONObject
 internal fun JSONObject.nullableString(key: String): String? = if (isNull(key) || !has(key)) null else getString(key)
 
 object WireCodec {
+    fun historyPage(o: JSONObject) = HistoryPage(o.items("entries").map(::result), o.nullableString("nextCursor")).also { page ->
+        require(page.entries.map { it.attemptId }.distinct().size == page.entries.size)
+        require(page.entries.all { it.completedAt > 0 && it.reviews.isEmpty() })
+        require(page.entries.zipWithNext().all { (a, b) -> a.completedAt >= b.completedAt })
+    }
+    fun ledgerPage(o: JSONObject) = LedgerPage(o.items("entries").map {
+        LedgerEntry(it.getString("id"), it.getString("label"), it.getInt("delta"), it.getLong("createdAt"))
+    }, o.nullableString("nextCursor")).also { page ->
+        require(page.entries.map { it.id }.distinct().size == page.entries.size)
+        require(page.entries.all { it.id.isNotBlank() && it.createdAt > 0 })
+        require(page.entries.zipWithNext().all { (a, b) -> a.createdAt >= b.createdAt })
+    }
+    fun statistics(o: JSONObject): StudyStatistics {
+        fun metric(v: JSONObject): StudyMetric {
+            val skillMap = v.getJSONObject("skills")
+            val skills = skillMap.keys().asSequence().map { id -> val s = skillMap.getJSONObject(id)
+                SkillStat(id, id, s.getInt("answered"), s.getInt("correct")) }.toList()
+            return StudyMetric(v.getInt("sessions"), v.getInt("answered"), v.getInt("correct"), v.getLong("durationMs"),
+                v.getInt("unknownDurationSessions"), skills).also {
+                require(it.sessions >= 0 && it.answered >= 0 && it.correct in 0..it.answered && it.durationMs >= 0 && it.unknownDurationSessions >= 0)
+                require(skills.all { s -> s.answered >= 0 && s.correct in 0..s.answered })
+            }
+        }
+        require(o.getString("timeZone") == "Asia/Ho_Chi_Minh")
+        return StudyStatistics(o.getString("period"), o.getString("today"), o.getString("from"), o.getString("to"),
+            o.getString("previousFrom"), o.getString("previousTo"), metric(o.getJSONObject("current")), metric(o.getJSONObject("previous")),
+            o.items("days").map { StudyDay(it.getString("date"), metric(it)) },
+            if (o.isNull("accuracyDelta")) null else o.getDouble("accuracyDelta"), o.getInt("streak")).also {
+            require(it.period in listOf("week", "month") && it.streak >= 0)
+            val from = java.time.LocalDate.parse(it.from); val to = java.time.LocalDate.parse(it.to)
+            require(it.days.size == java.time.temporal.ChronoUnit.DAYS.between(from, to).toInt())
+            require(it.days.map { d -> d.date } == (0 until it.days.size).map { offset -> from.plusDays(offset.toLong()).toString() })
+            require(it.accuracyDelta == null || it.accuracyDelta.isFinite() && it.accuracyDelta in -100.0..100.0)
+        }
+    }
     fun question(o: JSONObject): QuizQuestion {
         val q = QuizQuestion(o.getString("id"), o.getString("version"), o.getString("categoryId"),
             o.optString("topicId"), o.getString("prompt"), o.items("options").map {
@@ -28,13 +63,15 @@ object WireCodec {
         o.getInt("correct"), o.getInt("total"), o.getInt("coins"), o.optInt("ratingDelta"),
         o.optString("outcome", "completed"), o.optString("opponentName"), o.optInt("opponentCorrect"),
         o.items("reviews").map { QuestionReview(question(it.getJSONObject("question")),
-            it.nullableString("pickedId"), it.getString("correctId"), it.getString("explanation")) }, o.optLong("completedAt")).also {
+            it.nullableString("pickedId"), it.getString("correctId"), it.getString("explanation")) }, o.optLong("completedAt"),
+        if (o.isNull("durationMs") || !o.has("durationMs")) null else o.getLong("durationMs")).also {
                 require(it.total > 0 && it.correct in 0..it.total && it.coins >= 0)
+                require(it.durationMs == null || it.durationMs >= 0)
             }
     fun resultJson(r: QuizResult) = JSONObject().put("attemptId", r.attemptId).put("mode", r.mode.name)
         .put("correct", r.correct).put("total", r.total).put("coins", r.coins).put("ratingDelta", r.ratingDelta)
         .put("outcome", r.outcome).put("opponentName", r.opponentName).put("opponentCorrect", r.opponentCorrect)
-        .put("completedAt", r.completedAt).put("reviews", JSONArray(r.reviews.map {
+        .put("completedAt", r.completedAt).put("durationMs", r.durationMs ?: JSONObject.NULL).put("reviews", JSONArray(r.reviews.map {
             JSONObject().put("question", questionJson(it.question)).put("pickedId", it.pickedId ?: JSONObject.NULL)
                 .put("correctId", it.correctId).put("explanation", it.explanation)
         }))
@@ -69,7 +106,8 @@ object WireCodec {
             it.getString("body"), it.getString("destination"), it.getBoolean("read"), it.getLong("createdAt")) },
         o.items("ledger").map { LedgerEntry(it.getString("id"), it.getString("label"), it.getInt("delta"), it.getLong("createdAt")) },
         o.items("skills").map { SkillStat(it.getString("id"), it.getString("name"), it.getInt("answered"), it.getInt("correct")) },
-        o.optInt("unreadNotificationCount", o.items("notifications").count { !it.getBoolean("read") }))
+        o.optInt("unreadNotificationCount", o.items("notifications").count { !it.getBoolean("read") }), o.optInt("studyStreak"),
+        o.optJSONArray("studyDates")?.let { dates -> (0 until dates.length()).map { dates.getString(it) }.toSet() }.orEmpty())
     fun notifications(o: JSONObject) = NotificationPage(o.items("entries").map {
         AppNotification(it.getString("id"), it.getString("title"), it.getString("body"),
             it.getString("destination"), it.getBoolean("read"), it.getLong("createdAt"))

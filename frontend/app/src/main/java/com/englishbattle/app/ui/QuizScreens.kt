@@ -181,6 +181,7 @@ import java.util.Locale
             } else {
                 Panel {
                     Text("✓  Độ chính xác: ${r.correct * 100 / r.total}%", color = Green)
+                    Small("Thời gian làm bài: ${studyTimeLabel(r.durationMs)}")
                     Text(if (r.outcome == "abandoned") "Bài chưa hoàn thành · Không nhận thưởng" else "⚡  Hoàn thành ${r.total} câu hỏi", color = Purple)
                     if (r.coins > 0) Small("+${r.coins} xu", color = Green)
                 }

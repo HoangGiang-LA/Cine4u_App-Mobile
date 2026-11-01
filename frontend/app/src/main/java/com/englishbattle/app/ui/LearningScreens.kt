@@ -149,11 +149,9 @@ fun skillIcon(id: String) = skillIcons[skillIds.indexOf(id).coerceAtLeast(0)]
 @Composable private fun WeekStreak(d: Dashboard) {
     val today = java.time.LocalDate.now(java.time.ZoneId.of("Asia/Ho_Chi_Minh"))
     val monday = today.minusDays((today.dayOfWeek.value - 1).toLong())
-    val learned = d.history.filter { it.outcome !in listOf("left", "abandoned") }.map {
-        java.time.Instant.ofEpochMilli(it.completedAt).atZone(java.time.ZoneId.of("Asia/Ho_Chi_Minh")).toLocalDate()
-    }.toSet()
+    val learned = d.studyDates.map { java.time.LocalDate.parse(it) }.toSet()
     Panel {
-        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Tuần của bạn", fontWeight = FontWeight.Bold); Small("${d.streak} ngày liên tiếp", color = Purple) }
+        Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text("Tuần của bạn", fontWeight = FontWeight.Bold); Small("${d.studyStreak} ngày liên tiếp", color = Purple) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             listOf("T2", "T3", "T4", "T5", "T6", "T7", "CN").forEachIndexed { i, day ->
                 val date = monday.plusDays(i.toLong())

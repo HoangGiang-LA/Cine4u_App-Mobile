@@ -77,71 +77,6 @@ private fun rankAvatar(rank: Int) = listOf(R.drawable.figma_18, R.drawable.figma
     }
 }
 
-@Composable fun ProgressScreen(state: LoadState<Dashboard>, catalog: Catalog?, back: () -> Unit, retry: () -> Unit) {
-    var period by rememberSaveable { mutableIntStateOf(0) }
-    Screen("Tiến độ của tôi", back) {
-        Segments(listOf("Tuần", "Tháng"), period) { period = it }
-        DataContent(state, retry) { d ->
-            val zone = ZoneId.of("Asia/Ho_Chi_Minh")
-            val today = LocalDate.now(zone)
-            val start = if (period == 0) today.minusDays((today.dayOfWeek.value - 1).toLong()) else today.withDayOfMonth(1)
-            val next = if (period == 0) start.plusWeeks(1) else start.plusMonths(1)
-            val previous = if (period == 0) start.minusWeeks(1) else start.minusMonths(1)
-            val all = d.history.filter { it.outcome !in listOf("abandoned", "left") }
-            fun date(r: QuizResult) = Instant.ofEpochMilli(r.completedAt).atZone(zone).toLocalDate()
-            val current = all.filter { date(it) >= start && date(it) < next }
-            val before = all.filter { date(it) >= previous && date(it) < start }
-            val count = current.sumOf { it.total }
-            val accuracy = if (count > 0) current.sumOf { it.correct } * 100 / count else null
-            val beforeTotal = before.sumOf { it.total }
-            val beforeAccuracy = if (beforeTotal > 0) before.sumOf { it.correct } * 100 / beforeTotal else null
-            Panel {
-                Small("ĐỘ CHÍNH XÁC")
-                Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text(accuracy?.let { "$it%" } ?: "—", fontSize = 42.sp, fontWeight = FontWeight.ExtraBold)
-                    if (accuracy != null && beforeAccuracy != null) Pill("↗ ${signed(accuracy - beforeAccuracy)}%", Green, Mint)
-                }
-                Small(if (beforeAccuracy != null) "so với ${if (period == 0) "tuần" else "tháng"} trước" else "Chưa có dữ liệu kỳ trước")
-                Text("Hoạt động mỗi ngày", fontWeight = FontWeight.Bold)
-                val slots = if (period == 0) 7 else (today.lengthOfMonth() + 6) / 7
-                val values = (0 until slots).map { i -> current.count {
-                    if (period == 0) date(it) == start.plusDays(i.toLong()) else (date(it).dayOfMonth - 1) / 7 == i
-                } }
-                val maximum = (values.maxOrNull() ?: 0).coerceAtLeast(1)
-                Row(Modifier.fillMaxWidth().height(155.dp), horizontalArrangement = Arrangement.spacedBy(14.dp), verticalAlignment = Alignment.Bottom) {
-                    values.forEachIndexed { i, value -> Column(Modifier.weight(1f), horizontalAlignment = Alignment.CenterHorizontally) {
-                        if (value > 0) Small(value.toString(), color = Purple)
-                        Box(Modifier.fillMaxWidth().height((125f * value / maximum).coerceAtLeast(2f).dp).clip(RoundedCornerShape(topStart = 6.dp, topEnd = 6.dp))
-                            .background(if (value == maximum && value > 0) Purple else Color(0xFFDDCEF6)))
-                        Small(if (period == 0) listOf("T2", "T3", "T4", "T5", "T6", "T7", "CN")[i] else "T${i + 1}", Modifier.padding(top = 6.dp))
-                    } }
-                }
-                Small("Theo các hoạt động đã tải · Chuỗi học ${d.streak} ngày")
-            }
-            Column { Title("Tiến bộ từng kỹ năng"); Small("Mỗi ngày một bước, bạn đang làm rất tốt!") }
-            Panel {
-                skillIds.forEachIndexed { i, id ->
-                    val skill = d.skills.find { it.id == id }
-                    val value = if (skill != null && skill.answered > 0) skill.correct.toFloat() / skill.answered else 0f
-                    Row(verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
-                        IconTile(skillIcons[i], skillTints[i], skillColors[i], 36.dp)
-                        Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) { Text(skillNames[i], fontSize = 14.sp); Small(if (skill != null && skill.answered > 0) "${(value * 100).toInt()}%" else "—", color = skillTints[i]) }
-                            Progress(value, skillTints[i])
-                        }
-                    }
-                    if (i < 3) Spacer(Modifier.height(8.dp))
-                }
-            }
-            if (!catalog?.topics.isNullOrEmpty()) {
-                Title("Tiến độ luyện tập")
-                catalog?.topics?.filter { (d.progress[it.id] ?: 0) > 0 }?.forEach { topic ->
-                    Panel { Text(topic.title); Small("${(d.progress[topic.id] ?: 0).coerceAtMost(topic.target)}/${topic.target}") }
-                }
-            }
-        }
-    }
-}
 @Composable fun AchievementsScreen(state: LoadState<Dashboard>, back: () -> Unit, retry: () -> Unit) {
     val icons = listOf(Icons.Outlined.EmojiEvents, Icons.Outlined.LocalFireDepartment, Icons.Outlined.StarOutline, Icons.Outlined.SportsEsports, Icons.Outlined.WorkspacePremium, Icons.Outlined.Bolt)
     Screen("Thành tích", back) {
@@ -175,13 +110,16 @@ private fun rankAvatar(rank: Int) = listOf(R.drawable.figma_18, R.drawable.figma
         }
     }
 }
-@Composable fun WalletScreen(state: LoadState<Dashboard>, back: () -> Unit, retry: () -> Unit) {
+@Composable fun WalletScreen(state: LoadState<Dashboard>, ledger: LoadState<LedgerPage>, back: () -> Unit, retry: () -> Unit, more: () -> Unit) {
     Screen("Ví xu", back) {
         DataContent(state, retry) { d ->
             Panel(color = Yellow) { Title("${d.coins} xu"); Small("Xu tích lũy từ hoạt động hợp lệ. Chức năng đổi thưởng chưa được mở.") }
             Title("Lịch sử xu")
-            if (d.ledger.isEmpty()) EmptyPanel("Chưa có giao dịch xu.")
-            d.ledger.forEach { item -> Panel { Text(item.label); Text("${signed(item.delta)} xu", color = Green); Small(dateLabel(item.createdAt)) } }
+            DataContent(ledger, retry) { page ->
+                if (page.entries.isEmpty()) EmptyPanel("Chưa có giao dịch xu.")
+                page.entries.forEach { item -> Panel { Text(item.label); Text("${signed(item.delta)} xu", color = Green); Small(dateLabel(item.createdAt)) } }
+                if (page.nextCursor != null) Primary("Xem thêm giao dịch", enabled = !ledger.loading, onClick = more)
+            }
         }
     }
 }

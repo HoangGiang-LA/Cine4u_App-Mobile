@@ -121,12 +121,12 @@ import kotlinx.coroutines.delay
         dismissButton = { TextButton({ confirmCancel = false }) { Text("Tiếp tục chờ") } })
 }
 
-@Composable fun HistoryScreen(state: com.englishbattle.app.data.LoadState<com.englishbattle.app.data.Dashboard>, back: () -> Unit,
-    retry: () -> Unit, result: (String) -> Unit, learning: Boolean = false) {
+@Composable fun HistoryScreen(state: com.englishbattle.app.data.LoadState<com.englishbattle.app.data.HistoryPage>, back: () -> Unit,
+    retry: () -> Unit, result: (String) -> Unit, learning: Boolean = false, more: () -> Unit = {}) {
     val avatars = listOf(R.drawable.figma_13, R.drawable.figma_14, R.drawable.figma_15, R.drawable.figma_16)
     Screen(if (learning) "Lịch sử học tập" else "Lịch sử thi đấu", back) {
         DataContent(state, retry) { d ->
-            val history = d.history.filter { (it.mode == com.englishbattle.app.data.QuizMode.BATTLE) != learning }
+            val history = d.entries
             if (history.isEmpty()) EmptyPanel("Chưa có hoạt động trong mục này.")
             history.forEachIndexed { i, r ->
                 val color = when (r.outcome) { "win", "completed" -> Green; "draw" -> Purple; else -> Color(0xFFD07483) }
@@ -137,6 +137,7 @@ import kotlinx.coroutines.delay
                     Column(Modifier.weight(1f), verticalArrangement = Arrangement.spacedBy(5.dp)) {
                         Text(title, fontWeight = FontWeight.ExtraBold, color = color, fontSize = 20.sp)
                         Small(dateLabel(r.completedAt))
+                        Small(studyTimeLabel(r.durationMs))
                     }
                     Column(horizontalAlignment = Alignment.End) {
                         Text(if (learning) "${r.correct}/${r.total}" else "${r.correct} - ${r.opponentCorrect}", fontWeight = FontWeight.Bold)
@@ -145,6 +146,7 @@ import kotlinx.coroutines.delay
                 }
                 HorizontalDivider(color = Line)
             }
+            if (d.nextCursor != null) Primary("Xem thêm lịch sử", enabled = !state.loading, onClick = more)
         }
     }
 }

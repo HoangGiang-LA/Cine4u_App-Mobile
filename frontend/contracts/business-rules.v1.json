@@ -39,6 +39,10 @@
     "ratingFloor": 0
   },
   "implementationDefaultsToDocument": {
+    "studyDuration": "server_question_windows_capped_at_30_seconds",
+    "studyTimeZone": "Asia/Ho_Chi_Minh",
+    "statisticsPeriods": "calendar_week_monday_and_calendar_month",
+    "legacyMissingDuration": "unknown_never_invent_minutes",
     "leaderboardTieBreak": ["rating_desc", "uid_asc"],
     "firstFinalResultIsImmutable": true,
     "dailyDeadline": "min(questionDeadline, nextMidnight)",

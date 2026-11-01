@@ -31,7 +31,8 @@ data class QuestionReview(val question: QuizQuestion, val pickedId: String?, val
 data class QuizResult(val attemptId: String, val mode: QuizMode, val correct: Int, val total: Int,
     val coins: Int, val ratingDelta: Int = 0, val outcome: String = "completed",
     val opponentName: String = "", val opponentCorrect: Int = 0,
-    val reviews: List<QuestionReview> = emptyList(), val completedAt: Long = 0L)
+    val reviews: List<QuestionReview> = emptyList(), val completedAt: Long = 0L,
+    val durationMs: Long? = null)
 data class AttemptState(val id: String, val mode: QuizMode, val topicId: String,
     val questions: List<QuizQuestion>, val index: Int, val deadlineAt: Long,
     val receipts: List<AnswerReceipt> = emptyList(), val status: String = "active",
@@ -51,10 +52,20 @@ data class Dashboard(val rating: Int = 0, val coins: Int = 0, val wins: Int = 0,
     val daily: DailyStatus = DailyStatus(), val history: List<QuizResult> = emptyList(),
     val achievements: List<Achievement> = emptyList(), val notifications: List<AppNotification> = emptyList(),
     val ledger: List<LedgerEntry> = emptyList(), val skills: List<SkillStat> = emptyList(),
-    val unreadNotificationCount: Int = notifications.count { !it.read })
+    val unreadNotificationCount: Int = notifications.count { !it.read },
+    val studyStreak: Int = 0, val studyDates: Set<String> = emptySet())
 
 data class NotificationPage(val entries: List<AppNotification>, val unreadCount: Int,
     val totalCount: Int, val nextCursor: String? = null)
+
+data class HistoryPage(val entries: List<QuizResult>, val nextCursor: String? = null)
+data class LedgerPage(val entries: List<LedgerEntry>, val nextCursor: String? = null)
+data class StudyMetric(val sessions: Int, val answered: Int, val correct: Int,
+    val durationMs: Long, val unknownDurationSessions: Int, val skills: List<SkillStat>)
+data class StudyDay(val date: String, val metric: StudyMetric)
+data class StudyStatistics(val period: String, val today: String, val from: String, val to: String,
+    val previousFrom: String, val previousTo: String, val current: StudyMetric, val previous: StudyMetric,
+    val days: List<StudyDay>, val accuracyDelta: Double?, val streak: Int)
 data class LeaderboardEntry(val uid: String, val name: String, val rank: Int, val rating: Int)
 data class LeaderboardPage(val title: String, val entries: List<LeaderboardEntry>,
     val self: LeaderboardEntry? = null, val nextCursor: String? = null)

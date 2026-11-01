@@ -1,7 +1,7 @@
 # Hợp đồng tích hợp v1
 
 - `business-rules.v1.json`: chính sách đã chốt và các mặc định triển khai được ghi riêng.
-- `mobile.v1.mjs`: JSON Schema cho request/response của 15 callable Android, gồm lưu lựa chọn và phân trang thông báo; code server nằm trong Backend/functions.
+- `mobile.v1.mjs`: JSON Schema cho request/response của 18 callable Android, gồm thống kê theo kỳ, thời lượng và phân trang lịch sử/ví/thông báo; code server nằm trong Backend/functions.
 - `admin.v1.json`: ánh xạ 22 phương thức AdminService, gồm 21 callable đề xuất và một `reset` chỉ dùng demo. Kiểu payload đầy đủ tiếp tục lấy từ `admin-web/src/domain.ts`.
 - `database.rules.proposed.json`: Rules client để kiểm thử bằng emulator, **chưa deploy**.
 

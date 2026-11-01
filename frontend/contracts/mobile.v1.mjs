@@ -12,7 +12,7 @@ export const question = object({id: str, version: str, categoryId: {enum: ['voca
 const review = object({question, pickedId: nullableId, correctId: str, explanation: text});
 export const result = object({attemptId: str, mode: modes, correct: int, total: {...int, minimum: 1}, coins: int,
   ratingDelta: {type: 'integer'}, outcome: {enum: ['completed', 'abandoned', 'win', 'loss', 'draw', 'left']},
-  opponentName: text, opponentCorrect: int, completedAt: int, reviews: list(review)}, ['attemptId', 'mode', 'correct', 'total', 'coins', 'outcome', 'reviews']);
+  opponentName: text, opponentCorrect: int, completedAt: int, durationMs: {anyOf: [int, {type: 'null'}]}, reviews: list(review)}, ['attemptId', 'mode', 'correct', 'total', 'coins', 'outcome', 'reviews']);
 const receipt = object({questionId: str, optionId: nullableId, correct: {type: ['boolean', 'null']}}, ['questionId', 'optionId']);
 export const attempt = {...object({id: str, mode: modes, topicId: text, questions: list(question), index: int, deadlineAt: int,
   receipts: list(receipt), status: {enum: ['active', 'waiting', 'completed', 'abandoned']}, opponentName: text,
@@ -28,17 +28,28 @@ const dashboard = object({rating: int, coins: int, wins: int, losses: int, draws
   daily: object({status: {enum: ['available', 'active', 'waiting', 'completed', 'abandoned']}, attemptId: nullableId}, ['status']),
   history: list(result, 50), achievements: list(object({id: str, title: str, description: text, unlocked: {type: 'boolean'},
     progress: int, threshold: {...int, minimum: 1}}, ['id', 'title', 'description', 'unlocked'])),
-  notifications: list(notification, 50), unreadNotificationCount: int,
+  notifications: list(notification, 50), unreadNotificationCount: int, studyStreak: int, studyDates: list(text, 7),
   ledger: list(object({id: str, label: str, delta: {type: 'integer'}, createdAt: int}), 50),
   skills: list(object({id: str, name: str, answered: int, correct: int}))},
   ['rating', 'coins', 'wins', 'losses', 'draws', 'streak', 'progress', 'daily', 'history', 'achievements', 'notifications', 'ledger', 'skills']);
 const response = props => object({serverNow: int, ...props});
+const counts = object({answered: int, correct: int});
+const metric = object({sessions: int, answered: int, correct: int, durationMs: int, unknownDurationSessions: int,
+  skills: {type: 'object', additionalProperties: counts}});
+const dateKey = {type: 'string', pattern: '^\\d{4}-\\d{2}-\\d{2}$'};
+const statistics = object({period: {enum: ['week', 'month']}, timeZone: {const: 'Asia/Ho_Chi_Minh'},
+  today: dateKey, from: dateKey, to: dateKey, previousFrom: dateKey, previousTo: dateKey,
+  current: metric, previous: metric, days: list(object({date: dateKey, ...metric.properties}), 31),
+  accuracyDelta: {type: ['number', 'null']}, streak: int});
 const empty = object({});
 export const mobileContract = {
   version: 1, region: 'asia-southeast1', transport: 'firebase-callable',
   methods: {
     ensureUserProfile: {request: empty, response: response({}), writes: true},
     getUserDashboard: {request: empty, response: response({dashboard})},
+    getStudyStatistics: {request: object({period: {enum: ['week', 'month']}}), response: response({statistics})},
+    getHistory: {request: object({kind: {enum: ['learning', 'battle']}, cursor: nullableId}, ['kind']), response: response({page: object({entries: list(result, 25), nextCursor: nullableId})})},
+    getCoinLedger: {request: object({cursor: nullableId}, []), response: response({page: object({entries: list(object({id: str, label: str, delta: {type: 'integer'}, createdAt: int}), 25), nextCursor: nullableId})})},
     startAttempt: {request: {...object({mode: modes, topicId: nullableId, requestId: str}, ['mode', 'requestId']),
       allOf: [{if: {properties: {mode: {const: 'PRACTICE'}}}, then: {required: ['topicId'], properties: {topicId: str}}}]}, response: response({attempt}), writes: true},
     resumeAttempt: {request: object({attemptId: str}), response: response({attempt})},

@@ -50,6 +50,7 @@ export interface BattleMatch {
   createdAt: number;
   readyDeadlineAt: number;
   openedAt: number;
+  questionTimings?: Record<string, {openedAt: number; deadlineAt: number}>;
   deadlineAt: number;
   leaveDeadlineAt?: number;
   finish?: BattleFinish;

@@ -28,7 +28,7 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
 @Composable fun EnglishBattleApp(initial: String = "Splash",
     auth: AuthViewModel = viewModel(), catalog: CatalogViewModel = viewModel(),
     userData: UserDataViewModel = viewModel(), play: PlayViewModel = viewModel(),
-    access: AccountAccessViewModel = viewModel()) {
+    access: AccountAccessViewModel = viewModel(), reporting: ReportingViewModel = viewModel()) {
     val authState by auth.state.collectAsStateWithLifecycle()
     val accessState by access.state.collectAsStateWithLifecycle()
     val context = LocalContext.current
@@ -42,8 +42,8 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
     }
     LaunchedEffect(sessionKey, ready) {
         if (identity != null && ready) {
-            catalog.connect(); userData.connect(); play.connect(identity.uid)
-        } else { catalog.clear(); userData.clear(); play.clear() }
+            catalog.connect(); userData.connect(); play.connect(identity.uid); reporting.connect()
+        } else { catalog.clear(); userData.clear(); play.clear(); reporting.clear() }
     }
     val owner = LocalLifecycleOwner.current
     LaunchedEffect(online, ready) { if (online && ready) auth.refreshProfile() }
@@ -76,18 +76,21 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
                     Secondary("Đăng xuất", onClick = auth::signOut)
                 }
             } else key(sessionKey) {
-                SignedInApp(identity, authState, initial, catalog, userData, play, auth)
+                SignedInApp(identity, authState, initial, catalog, userData, play, auth, reporting)
             }
         }
     }
 }
 
 @Composable private fun SignedInApp(user: UserIdentity, authState: AuthState, initial: String,
-    catalogVM: CatalogViewModel, dataVM: UserDataViewModel, play: PlayViewModel, authVM: AuthViewModel) {
+    catalogVM: CatalogViewModel, dataVM: UserDataViewModel, play: PlayViewModel, authVM: AuthViewModel, reporting: ReportingViewModel) {
     val catalog by catalogVM.state.collectAsStateWithLifecycle()
     val dashboard by dataVM.dashboard.collectAsStateWithLifecycle()
     val board by dataVM.board.collectAsStateWithLifecycle()
     val notifications by dataVM.notifications.collectAsStateWithLifecycle()
+    val statistics by reporting.statistics.collectAsStateWithLifecycle()
+    val history by reporting.history.collectAsStateWithLifecycle()
+    val ledger by reporting.ledger.collectAsStateWithLifecycle()
     val message by dataVM.message.collectAsStateWithLifecycle()
     val attempt by play.attempt.collectAsStateWithLifecycle()
     val ticket by play.ticket.collectAsStateWithLifecycle()
@@ -139,6 +142,9 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
     LaunchedEffect(route) {
         if (route == Route.Leaderboard) dataVM.loadBoard(dataVM.period)
         if (route == Route.Notifications) dataVM.loadNotifications()
+        if (route == Route.Progress) reporting.loadStatistics()
+        if (route == Route.History || route == Route.LearningHistory) reporting.loadHistory(if (route == Route.History) "battle" else "learning")
+        if (route == Route.Wallet) reporting.loadLedger()
         if (route == Route.Matching && ticket.data == null && play.hasPendingMatch && !busy) play.retryMatch()
         if (route in listOf(Route.Profile, Route.History, Route.LearningHistory, Route.Challenge, Route.Progress, Route.Wallet, Route.Notifications, Route.Achievements)) dataVM.refresh()
         if (route in listOf(Route.PracticeResult, Route.BattleResult, Route.Review) && result.data == null && !result.loading) resultId?.let(play::viewResult)
@@ -171,11 +177,11 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
                 Route.PrivateRoom -> PrivateRoomScreen(busy, ::back, { find("create") }, { find("join", it) })
                 Route.Matching -> MatchingScreen(ticket, busy, playError,
                     { cancelRequested = true; play.cancelMatch() }, { enterRequested = true; play.enterMatch() }, play::retryMatch, { root(Route.Battle) })
-                Route.History, Route.LearningHistory -> HistoryScreen(dashboard, ::back, dataVM::refresh, { id -> resultId = id; play.viewResult(id); go(Route.PracticeResult) }, route == Route.LearningHistory)
+                Route.History, Route.LearningHistory -> HistoryScreen(history, ::back, { reporting.loadHistory() }, { id -> resultId = id; play.viewResult(id); go(Route.PracticeResult) }, route == Route.LearningHistory, { reporting.loadHistory(more = true) })
                 Route.Leaderboard -> LeaderboardScreen(board, dataVM.period, ::back, { dataVM.loadBoard(it) }, { dataVM.loadBoard(dataVM.period, true) })
-                Route.Progress -> ProgressScreen(dashboard, catalog.data, ::back, dataVM::refresh)
+                Route.Progress -> ProgressScreen(statistics, dashboard.data, catalog.data, reporting.period, ::back, reporting::loadStatistics)
                 Route.Profile -> ProfileScreen(user, dashboard, authState.busy, ::go, authVM::updateName, dataVM::refresh)
-                Route.Wallet -> WalletScreen(dashboard, ::back, dataVM::refresh)
+                Route.Wallet -> WalletScreen(dashboard, ledger, ::back, { dataVM.refresh(); reporting.loadLedger() }, { reporting.loadLedger(true) })
                 Route.Achievements -> AchievementsScreen(dashboard, ::back, dataVM::refresh)
                 Route.Notifications -> NotificationsFeedScreen(notifications, ::back, { dataVM.loadNotifications() },
                     dataVM::markRead, dataVM::markAllRead, { dataVM.loadNotifications(true) }) { destination ->

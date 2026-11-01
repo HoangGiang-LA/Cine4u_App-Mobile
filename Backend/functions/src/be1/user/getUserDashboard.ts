@@ -3,14 +3,16 @@ import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {refreshBattleAchievements} from "../battle/battleAchievements";
 import {notificationCounts, notificationSlice} from
   "../community/notifications";
+import {isStudyDayActive, studyStreak} from "../reporting/activity";
+import {periodBounds} from "../reporting/getStudyStatistics";
 
-const getDateKey = (): string => {
+const getDateKey = (now: number): string => {
   const parts = new Intl.DateTimeFormat("en-CA", {
     timeZone: "Asia/Ho_Chi_Minh",
     year: "numeric",
     month: "2-digit",
     day: "2-digit",
-  }).formatToParts(new Date());
+  }).formatToParts(new Date(now));
 
   const get = (type: string): string =>
     parts.find((p) => p.type === type)?.value ?? "";
@@ -50,6 +52,7 @@ export const getUserDashboard = onCall(
     }
 
     try {
+      const now = Date.now();
       const authUser = await adminAuth.getUser(uid);
 
       if (authUser.disabled) {
@@ -59,7 +62,7 @@ export const getUserDashboard = onCall(
         );
       }
 
-      const dateKey = getDateKey();
+      const dateKey = getDateKey(now);
 
 
       const [
@@ -251,6 +254,16 @@ export const getUserDashboard = onCall(
 
       const counts = await notificationCounts(uid);
       const notifications = (await notificationSlice(uid, counts, 50)).entries;
+      const studyDates: string[] = [];
+      const weekStart = periodBounds("week", now).from;
+      const [learningStreak, activeDays] = await Promise.all([
+        studyStreak(uid, dateKey),
+        adminDb.ref(`studyActiveDays/${uid}`).orderByKey()
+          .startAt(weekStart).endAt(dateKey).get(),
+      ]);
+      activeDays.forEach((child) => {
+        if (isStudyDayActive(child.val())) studyDates.push(child.key!);
+      });
 
       const ledgerData = ledgerSnap.val() ?? {};
 
@@ -428,6 +441,8 @@ return {
     achievements,
     notifications,
     unreadNotificationCount: counts.unreadCount,
+    studyStreak: learningStreak,
+    studyDates,
     ledger,
     skills,
   },

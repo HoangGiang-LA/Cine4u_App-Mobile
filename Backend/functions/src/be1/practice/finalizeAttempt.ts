@@ -3,6 +3,7 @@ import {adminDb} from "../../config/firebaseAdmin";
 import {transactionWithRetry} from "../databaseTransaction";
 import type {BattleAchievement} from "../battle/battleAchievements";
 import {unlockPracticeAchievement} from "../community/practiceNotifications";
+import {projectLearningActivity} from "../reporting/activity";
 import {
   initializeAttemptAnswers, projectAttemptState, StoredAnswer, StoredAttempt,
   updateAttemptCounts,
@@ -479,7 +480,11 @@ async function finalizeAttemptStored(
     ...updates,
   };
 
-  const response = await buildAttemptResponse(uid, attemptId, finalAttemptData);
+  const durationMs = await projectLearningActivity(uid, attemptId,
+    finalAttemptData);
+
+  const response = await buildAttemptResponse(uid, attemptId,
+    {...finalAttemptData, durationMs: durationMs ?? null});
   // This marker and queue removal are atomic and come after every projection,
   // including reviews. A crash at any earlier step leaves durable retry work.
   await adminDb.ref().update({

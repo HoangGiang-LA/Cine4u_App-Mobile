@@ -118,7 +118,13 @@ class CommunityFlowTest {
     }
 }
 
-private class CommunityRepository : GameRepository {
+internal class CommunityRepository : GameRepository {
+    var stats: suspend (String) -> StudyStatistics = { error("Unused") }
+    var past: suspend (String, String?) -> HistoryPage = { _, _ -> error("Unused") }
+    var ledger: suspend (String?) -> LedgerPage = { error("Unused") }
+    override suspend fun statistics(period: String) = stats(period)
+    override suspend fun history(kind: String, cursor: String?) = past(kind, cursor)
+    override suspend fun coinLedger(cursor: String?) = ledger(cursor)
     var board: suspend (String, String?) -> LeaderboardPage = { _, _ -> LeaderboardPage("Current", emptyList()) }
     var feed: suspend (String?) -> NotificationPage = { NotificationPage(emptyList(), 0, 0) }
     var unread = 30

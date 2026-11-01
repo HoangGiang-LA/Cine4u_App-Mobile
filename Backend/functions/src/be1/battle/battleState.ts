@@ -170,6 +170,10 @@ export function resolveBattle(match: BattleMatch, now: number): void {
     match.currentIndex++;
     match.openedAt = boundary;
     match.deadlineAt = boundary + BATTLE_QUESTION_MS;
+    match.questionTimings ||= {};
+    match.questionTimings[match.currentIndex] = {
+      openedAt: match.openedAt, deadlineAt: match.deadlineAt,
+    };
     if (!expiredRound) return;
   }
 }
@@ -221,6 +225,8 @@ export function applyBattleAction(
     match.status = "active";
     match.openedAt = now;
     match.deadlineAt = now + BATTLE_QUESTION_MS;
+    match.questionTimings = {0: {openedAt: now,
+      deadlineAt: match.deadlineAt}};
     event(match, "started", now);
   }
   if (

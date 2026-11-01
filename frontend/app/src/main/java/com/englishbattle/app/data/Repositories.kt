@@ -15,6 +15,9 @@ interface AuthRepository {
 interface CatalogRepository { fun observe(): Flow<Catalog> }
 interface GameRepository {
     suspend fun dashboard(): Dashboard
+    suspend fun statistics(period: String): StudyStatistics
+    suspend fun history(kind: String, cursor: String?): HistoryPage
+    suspend fun coinLedger(cursor: String?): LedgerPage
     suspend fun ensureProfile()
     suspend fun start(mode: QuizMode, topicId: String?, requestId: String): AttemptState
     suspend fun resume(attemptId: String): AttemptState

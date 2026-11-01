@@ -42,6 +42,7 @@ export interface WireResult {
   opponentCorrect: number;
   completedAt: number;
   reviews: WireReview[];
+  durationMs?: number | null;
 }
 
 export interface WireAttempt {
@@ -305,6 +306,8 @@ export async function buildAttemptResponse(
       opponentCorrect: 0,
       completedAt: (attemptData.finishedAt as number) ?? 0,
       reviews,
+      durationMs: typeof attemptData.durationMs === "number" ?
+        attemptData.durationMs : null,
     };
   }
 

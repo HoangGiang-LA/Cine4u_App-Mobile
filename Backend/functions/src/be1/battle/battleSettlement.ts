@@ -7,6 +7,9 @@ import {enqueueBattleWork} from "./battleWork";
 import {releaseBattle} from "./matchmaking";
 import {transactionWithRetry} from "../databaseTransaction";
 import {syncLeaderboardPlayer} from "../community/leaderboardProjection";
+import {projectActivity} from "../reporting/activity";
+import {battleStudyTiming} from "../reporting/duration";
+import {HistoryEntry} from "../reporting/history";
 import {
   applyBattleAchievements, battleAchievementDefinitions,
   projectBattleAchievements,
@@ -223,6 +226,7 @@ const settlePlayer = async (match: BattleMatch, uid: string) => {
   await projectBattleAchievements(uid, settlement);
   await syncLeaderboardPlayer(uid);
   const opponent = Object.keys(match.players).find((id) => id !== uid)!;
+  const timing = battleStudyTiming(match, uid);
   const result: WireResult = {
     attemptId: match.id,
     mode: "BATTLE",
@@ -234,6 +238,7 @@ const settlePlayer = async (match: BattleMatch, uid: string) => {
     opponentName: match.players[opponent].name,
     opponentCorrect: finish.correct[opponent],
     completedAt: finish.at,
+    durationMs: timing.durationMs,
     reviews: match.questions.map((question, index) => ({
       question,
       pickedId: match.players[uid].answers?.[index]?.selectedOptionId || null,
@@ -241,6 +246,10 @@ const settlePlayer = async (match: BattleMatch, uid: string) => {
       explanation: match.keys[question.id].explanation,
     })),
   };
+  const activity = await projectActivity(uid,
+    {...result, reviews: []} as HistoryEntry,
+    grant.answeredCount, skills, timing.durationByDay);
+  result.durationMs = activity.durationMs;
   return result;
 };
 

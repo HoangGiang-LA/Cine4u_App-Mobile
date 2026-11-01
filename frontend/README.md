@@ -37,7 +37,7 @@ Chỉ bản debug cho phép HTTP tới địa chỉ máy tính. Bản release lu
 ## Chế độ dữ liệu
 
 - **Firebase thật (mặc định):** đăng ký/đăng nhập email, đặt lại mật khẩu, đổi tên/email và khôi phục phiên. Danh mục đọc `categories`/`topics` published. Cần bật Email/Password và cấp Rules phù hợp. Lỗi dịch vụ được hiển thị, không chuyển sang dữ liệu giả.
-- **Backend:** 15 callable Android đã được export trong `Backend/functions`, chạy trên Functions Emulator khi phát triển. Thông báo trong app đã hoạt động; thông báo đẩy FCM chưa được triển khai.
+- **Backend:** 18 callable Android đã được export trong `Backend/functions`, chạy trên Functions Emulator khi phát triển. Thông báo trong app đã hoạt động; thông báo đẩy FCM chưa được triển khai.
 
 Tên được đồng bộ từ Auth sang RTDB sau khi lưu; khi mở lại app hoặc có mạng trở lại, app tải lại hồ sơ Auth và gọi `ensureUserProfile` để phục hồi đồng bộ bị gián đoạn. Email mới chỉ được đồng bộ sau khi Firebase Auth đã xác nhận thay đổi. Bước đồng bộ chỉ sửa tên/email và thời điểm cập nhật, giữ dữ liệu nghiệp vụ hiện có.
 
@@ -62,6 +62,12 @@ Kết quả kiểm thử trước đây: [QA ngày 24/10/2026](docs/QA-2026-10-2
 `contracts/database.rules.proposed.json` là bản Rules đề xuất được kiểm thử bằng emulator, yêu cầu `accountAccess` active và chặn client ghi dữ liệu. Rules gốc deny-all được giữ nguyên; bản đề xuất chưa được triển khai lên Firebase.
 
 ## Mã nguồn
+
+Tiến độ tuần/tháng dùng thống kê cả kỳ/kỳ trước từ server, không suy ra từ 50
+phiên gần nhất. Biểu đồ dùng phút học; thời gian từng câu được server giới hạn
+30 giây, loại thời gian chờ. Lịch sử học/thi đấu và ví xu có tải thêm 25 mục.
+Kết quả hiển thị thời lượng; phiên cũ thiếu timing hiển thị chưa có dữ liệu.
+Xem [REPORTING](../Backend/functions/REPORTING.md).
 
 Bảng xếp hạng và thông báo đã nối Functions: hai tab cùng rating tích lũy,
 phân trang theo snapshot và có vị trí bản thân. Trung tâm thông báo tải thêm,

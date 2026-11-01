@@ -110,12 +110,22 @@ class FirebaseGameRepository(private val clock: ServerClock,
             prefs.edit().putString("battle-session", it).apply()
         }
     }
-    private suspend fun call(name: String, data: Map<String, Any?> = emptyMap()): JSONObject = withTimeout(20_000) {
+    private fun callableTimeoutMs(name: String): Long = when (name) {
+        "getStudyStatistics" -> 120_000L
+        "ensureUserProfile" -> 60_000L
+        else -> 20_000L
+    }
+    private suspend fun call(name: String, data: Map<String, Any?> = emptyMap()): JSONObject = withTimeout(callableTimeoutMs(name)) {
         val sentAt = System.currentTimeMillis()
         val request = if (name in setOf("findBattle", "getBattleTicket", "cancelBattleSearch", "resumeAttempt",
                 "submitAttemptAnswer", "saveAttemptSelection", "advanceAttempt", "leaveAttempt", "getAttemptResult"))
             data + ("clientSessionId" to clientSessionId) else data
-        val response = try { functions.getHttpsCallable(name).call(request).await().data }
+        val response = try {
+            val callable = functions.getHttpsCallable(name)
+            if (name in setOf("getStudyStatistics", "ensureUserProfile"))
+                callable.setTimeout(callableTimeoutMs(name), java.util.concurrent.TimeUnit.MILLISECONDS)
+            callable.call(request).await().data
+        }
         catch (e: FirebaseFunctionsException) {
             if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED) FirebaseAuth.getInstance().signOut()
             throw e
@@ -131,6 +141,9 @@ class FirebaseGameRepository(private val clock: ServerClock,
     )
     override suspend fun ensureProfile() { call("ensureUserProfile") }
     override suspend fun dashboard() = WireCodec.dashboard(call("getUserDashboard").getJSONObject("dashboard"))
+    override suspend fun statistics(period: String) = WireCodec.statistics(call("getStudyStatistics", mapOf("period" to period)).getJSONObject("statistics"))
+    override suspend fun history(kind: String, cursor: String?) = WireCodec.historyPage(call("getHistory", mapOf("kind" to kind, "cursor" to cursor)).getJSONObject("page"))
+    override suspend fun coinLedger(cursor: String?) = WireCodec.ledgerPage(call("getCoinLedger", mapOf("cursor" to cursor)).getJSONObject("page"))
     override suspend fun start(mode: QuizMode, topicId: String?, requestId: String) = attempt(call("startAttempt",
         mapOf("mode" to mode.name, "topicId" to topicId, "requestId" to requestId)))
     override suspend fun resume(attemptId: String) = attempt(call("resumeAttempt", mapOf("attemptId" to attemptId)))
