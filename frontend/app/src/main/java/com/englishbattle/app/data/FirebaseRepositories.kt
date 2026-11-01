@@ -153,7 +153,11 @@ class FirebaseGameRepository(private val clock: ServerClock,
         return response.optJSONObject("attempt")?.let(WireCodec::attempt)
     }
     override suspend fun leaderboard(period: String, cursor: String?) = WireCodec.leaderboard(call("getLeaderboard", mapOf("period" to period, "cursor" to cursor)).getJSONObject("page"))
-    override suspend fun markRead(ids: List<String>) { call("markNotificationsRead", mapOf("ids" to ids)) }
+    override suspend fun notifications(cursor: String?) = WireCodec.notifications(call("getNotifications", mapOf("cursor" to cursor)).getJSONObject("page"))
+    override suspend fun markAllNotificationsRead() { call("markNotificationsRead", mapOf("all" to true)) }
+    override suspend fun markRead(ids: List<String>) {
+        ids.distinct().chunked(50).forEach { call("markNotificationsRead", mapOf("ids" to it)) }
+    }
     override suspend fun historyDetail(attemptId: String) = WireCodec.result(call("getAttemptResult", mapOf("attemptId" to attemptId)).getJSONObject("result"))
 }
 

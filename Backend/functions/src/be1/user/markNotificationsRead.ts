@@ -1,8 +1,8 @@
 import {HttpsError, onCall} from "firebase-functions/v2/https";
-import {adminDb} from "../../config/firebaseAdmin";
 import {activeBattleUser} from "../battle/battleAccess";
-import {transactionWithRetry} from "../databaseTransaction";
 import {contentId} from "../practice/contentValidation";
+import {readNotification, readAllNotifications, drainNotificationReads} from
+  "../community/notifications";
 
 export const markNotificationsRead = onCall(
   {region: "asia-southeast1", maxInstances: 10},
@@ -10,20 +10,20 @@ export const markNotificationsRead = onCall(
     const uid = request.auth?.uid;
     await activeBattleUser(uid);
     const data = request.data || {};
+    if (data.all === true && Object.keys(data).length === 1) {
+      await readAllNotifications(uid!);
+      await drainNotificationReads(uid!);
+      return {serverNow: Date.now()};
+    }
     const ids = data.ids;
     if (Object.keys(data).some((key) => key !== "ids") ||
         !Array.isArray(ids) || ids.length > 50 || ids.some((id) =>
       !contentId(id) || id.length > 512)) {
       throw new HttpsError("invalid-argument", "Invalid notification IDs.");
     }
-    const readAt = Date.now();
     await Promise.all([...new Set<string>(ids)].map((id) =>
-      transactionWithRetry(adminDb.ref(`notifications/${uid}/${id}`),
-        (notification) => {
-          if (!notification) return notification;
-          return notification.readAt > 0 ? notification :
-            {...notification, readAt};
-        })));
+      readNotification(uid!, id)));
+    await drainNotificationReads(uid!);
     return {serverNow: Date.now()};
   },
 );

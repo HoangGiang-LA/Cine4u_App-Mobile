@@ -14,6 +14,8 @@
     "leaderboardParticipants": "all_users",
     "weekMonthUseSameRanking": true,
     "leaderboardRatingReset": false,
+    "leaderboardBannedAccountsIncluded": true,
+    "leaderboardDeletedAccountsExcluded": true,
     "bothDisconnectedAfterGraceOutcome": "draw",
     "bothDisconnectedRatingDelta": 0,
     "bothDisconnectedCoins": 0,

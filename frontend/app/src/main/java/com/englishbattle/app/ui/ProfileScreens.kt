@@ -47,7 +47,7 @@ import com.englishbattle.app.data.*
         }
         MenuRow("Tiến độ của tôi", "Theo dõi hành trình học tập", Icons.Outlined.BarChart) { go(Route.Progress) }
         MenuRow("Thành tích", dashboard.data?.let { "${it.achievements.count { a -> a.unlocked }} huy hiệu đã mở khóa" }, Icons.Outlined.EmojiEvents) { go(Route.Achievements) }
-        MenuRow("Thông báo", dashboard.data?.let { "${it.notifications.count { n -> !n.read }} thông báo chưa đọc" }, Icons.Outlined.NotificationsNone) { go(Route.Notifications) }
+        MenuRow("Thông báo", dashboard.data?.let { "${it.unreadNotificationCount} thông báo chưa đọc" }, Icons.Outlined.NotificationsNone) { go(Route.Notifications) }
         MenuRow("Cài đặt", icon = Icons.Outlined.Settings) { go(Route.Settings) }
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceEvenly) {
             TextButton({ go(Route.Wallet) }) { Text("Ví xu") }
@@ -70,14 +70,22 @@ import com.englishbattle.app.data.*
 }
 @Composable fun NotificationsScreen(state: LoadState<Dashboard>, back: () -> Unit, retry: () -> Unit,
     markRead: (List<String>) -> Unit, open: (String) -> Unit) {
+    val d = state.data
+    val page = d?.let { NotificationPage(it.notifications, it.unreadNotificationCount, it.notifications.size) }
+    NotificationsFeedScreen(LoadState(page, state.loading, state.error), back, retry, markRead,
+        { markRead(d?.notifications?.filter { !it.read }?.map { it.id }.orEmpty()) }, {}, open)
+}
+
+@Composable fun NotificationsFeedScreen(state: LoadState<NotificationPage>, back: () -> Unit, retry: () -> Unit,
+    markRead: (List<String>) -> Unit, markAll: () -> Unit, more: () -> Unit, open: (String) -> Unit) {
     Screen("Thông báo", back) {
         DataContent(state, retry) { d ->
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 Text("Cập nhật của bạn", fontWeight = FontWeight.Bold)
-                TextButton({ markRead(d.notifications.filter { !it.read }.map { it.id }) }) { Pill("${d.notifications.count { !it.read }} chưa đọc") }
+                TextButton(markAll, enabled = d.unreadCount > 0 && !state.loading) { Pill("${d.unreadCount} chưa đọc") }
             }
-            if (d.notifications.isEmpty()) EmptyPanel("Bạn chưa có thông báo.")
-            d.notifications.forEach { n ->
+            if (d.entries.isEmpty()) EmptyPanel("Bạn chưa có thông báo.")
+            d.entries.forEach { n ->
                 Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(if (!n.read) Blue.copy(alpha = .3f) else Color.Transparent)
                     .clickable { if (!n.read) markRead(listOf(n.id)); open(n.destination) }.padding(12.dp), horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                     val achievement = n.destination == "Achievements"
@@ -91,6 +99,7 @@ import com.englishbattle.app.data.*
                 }
                 HorizontalDivider(color = Line)
             }
+            if (d.nextCursor != null) Primary("Xem thêm thông báo", enabled = !state.loading, onClick = more)
         }
     }
 }

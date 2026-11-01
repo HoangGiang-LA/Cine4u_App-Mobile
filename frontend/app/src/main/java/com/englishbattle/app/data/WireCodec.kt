@@ -68,11 +68,26 @@ object WireCodec {
         }, o.items("notifications").map { AppNotification(it.getString("id"), it.getString("title"),
             it.getString("body"), it.getString("destination"), it.getBoolean("read"), it.getLong("createdAt")) },
         o.items("ledger").map { LedgerEntry(it.getString("id"), it.getString("label"), it.getInt("delta"), it.getLong("createdAt")) },
-        o.items("skills").map { SkillStat(it.getString("id"), it.getString("name"), it.getInt("answered"), it.getInt("correct")) })
+        o.items("skills").map { SkillStat(it.getString("id"), it.getString("name"), it.getInt("answered"), it.getInt("correct")) },
+        o.optInt("unreadNotificationCount", o.items("notifications").count { !it.getBoolean("read") }))
+    fun notifications(o: JSONObject) = NotificationPage(o.items("entries").map {
+        AppNotification(it.getString("id"), it.getString("title"), it.getString("body"),
+            it.getString("destination"), it.getBoolean("read"), it.getLong("createdAt"))
+    }, o.getInt("unreadCount"), o.getInt("totalCount"), o.nullableString("nextCursor")).also { page ->
+        require(page.unreadCount >= 0 && page.totalCount >= page.unreadCount)
+        require(page.entries.map { it.id }.distinct().size == page.entries.size)
+        require(page.entries.all { it.id.isNotBlank() && it.createdAt >= 0 && it.destination in
+            listOf("Achievements", "Challenge", "Practice", "Battle", "Leaderboard", "History", "Wallet") })
+    }
     fun ticket(o: JSONObject) = MatchTicket(o.getString("id"), o.getString("status"), o.optString("opponentName"),
         o.nullableString("attemptId"), o.nullableString("roomCode"))
     fun leaderboard(o: JSONObject): LeaderboardPage {
-        fun entry(e: JSONObject) = LeaderboardEntry(e.getString("uid"), e.getString("name"), e.getInt("rank"), e.getInt("rating"))
-        return LeaderboardPage(o.getString("title"), o.items("entries").map(::entry), o.optJSONObject("self")?.let(::entry), o.nullableString("nextCursor"))
+        fun entry(e: JSONObject) = LeaderboardEntry(e.getString("uid"), e.getString("name"), e.getInt("rank"), e.getInt("rating")).also {
+            require(it.uid.isNotBlank() && it.name.isNotBlank() && it.rank > 0 && it.rating >= 0)
+        }
+        return LeaderboardPage(o.getString("title"), o.items("entries").map(::entry), o.optJSONObject("self")?.let(::entry), o.nullableString("nextCursor")).also { page ->
+            require(page.entries.map { it.uid }.distinct().size == page.entries.size)
+            require(page.entries.zipWithNext().all { (a, b) -> a.rank < b.rank })
+        }
     }
 }

@@ -6,6 +6,7 @@ import {BattleMatch, BattleOutcome} from "./battleTypes";
 import {enqueueBattleWork} from "./battleWork";
 import {releaseBattle} from "./matchmaking";
 import {transactionWithRetry} from "../databaseTransaction";
+import {syncLeaderboardPlayer} from "../community/leaderboardProjection";
 import {
   applyBattleAchievements, battleAchievementDefinitions,
   projectBattleAchievements,
@@ -220,6 +221,7 @@ const settlePlayer = async (match: BattleMatch, uid: string) => {
     );
   }
   await projectBattleAchievements(uid, settlement);
+  await syncLeaderboardPlayer(uid);
   const opponent = Object.keys(match.players).find((id) => id !== uid)!;
   const result: WireResult = {
     attemptId: match.id,

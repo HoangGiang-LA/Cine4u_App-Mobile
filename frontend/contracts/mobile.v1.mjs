@@ -22,14 +22,16 @@ export const attempt = {...object({id: str, mode: modes, topicId: text, question
 const entry = object({uid: str, name: str, rank: {...int, minimum: 1}, rating: int});
 const leaderboard = object({title: str, entries: list(entry, 100), self: {anyOf: [entry, {type: 'null'}]}, nextCursor: nullableId});
 const ticket = object({id: str, status: {enum: ['searching', 'waiting', 'matched', 'cancelled', 'expired', 'failed']}, opponentName: text, attemptId: nullableId, roomCode: nullableId}, ['id', 'status']);
+const notification = object({id: str, title: str, body: text, destination: {enum: ['Achievements', 'Challenge', 'Practice', 'Battle', 'Leaderboard', 'History', 'Wallet']}, read: {type: 'boolean'}, createdAt: int});
 const dashboard = object({rating: int, coins: int, wins: int, losses: int, draws: int, streak: int,
   progress: {type: 'object', additionalProperties: int},
   daily: object({status: {enum: ['available', 'active', 'waiting', 'completed', 'abandoned']}, attemptId: nullableId}, ['status']),
   history: list(result, 50), achievements: list(object({id: str, title: str, description: text, unlocked: {type: 'boolean'},
     progress: int, threshold: {...int, minimum: 1}}, ['id', 'title', 'description', 'unlocked'])),
-  notifications: list(object({id: str, title: str, body: text, destination: {enum: ['Achievements', 'Challenge', 'Practice', 'Battle', 'Leaderboard', 'History', 'Wallet']}, read: {type: 'boolean'}, createdAt: int}), 50),
+  notifications: list(notification, 50), unreadNotificationCount: int,
   ledger: list(object({id: str, label: str, delta: {type: 'integer'}, createdAt: int}), 50),
-  skills: list(object({id: str, name: str, answered: int, correct: int}))});
+  skills: list(object({id: str, name: str, answered: int, correct: int}))},
+  ['rating', 'coins', 'wins', 'losses', 'draws', 'streak', 'progress', 'daily', 'history', 'achievements', 'notifications', 'ledger', 'skills']);
 const response = props => object({serverNow: int, ...props});
 const empty = object({});
 export const mobileContract = {
@@ -49,7 +51,9 @@ export const mobileContract = {
     getBattleTicket: {request: object({ticketId: str}), response: response({ticket})},
     cancelBattleSearch: {request: object({ticketId: str}), response: object({serverNow: int, attempt}, ['serverNow']), writes: true},
     getLeaderboard: {request: object({period: {enum: ['week', 'month']}, cursor: nullableId}, ['period']), response: response({page: leaderboard})},
-    markNotificationsRead: {request: object({ids: list(str, 50)}), response: response({}), writes: true},
+    getNotifications: {request: object({cursor: nullableId}, []), response: response({page: object({entries: list(notification, 25), unreadCount: int, totalCount: int, nextCursor: nullableId})})},
+    markNotificationsRead: {request: {...object({ids: list(str, 50), all: {const: true}}, []),
+      oneOf: [{required: ['ids'], not: {required: ['all']}}, {required: ['all'], not: {required: ['ids']}}]}, response: response({}), writes: true},
     getAttemptResult: {request: object({attemptId: str}), response: response({result})},
   },
 };

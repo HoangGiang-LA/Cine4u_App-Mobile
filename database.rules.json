@@ -2,6 +2,8 @@
   "rules": {
     ".read": false,
     ".write": false,
+    "communityCursors": {".indexOn": ["expiresAt"]},
+    "communityRankings": {".indexOn": ["expiresAt"]},
     "learningWork": {
       ".indexOn": ["dueAt"]
     },

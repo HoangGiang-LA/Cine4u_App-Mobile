@@ -50,7 +50,11 @@ data class Dashboard(val rating: Int = 0, val coins: Int = 0, val wins: Int = 0,
     val draws: Int = 0, val streak: Int = 0, val progress: Map<String, Int> = emptyMap(),
     val daily: DailyStatus = DailyStatus(), val history: List<QuizResult> = emptyList(),
     val achievements: List<Achievement> = emptyList(), val notifications: List<AppNotification> = emptyList(),
-    val ledger: List<LedgerEntry> = emptyList(), val skills: List<SkillStat> = emptyList())
+    val ledger: List<LedgerEntry> = emptyList(), val skills: List<SkillStat> = emptyList(),
+    val unreadNotificationCount: Int = notifications.count { !it.read })
+
+data class NotificationPage(val entries: List<AppNotification>, val unreadCount: Int,
+    val totalCount: Int, val nextCursor: String? = null)
 data class LeaderboardEntry(val uid: String, val name: String, val rank: Int, val rating: Int)
 data class LeaderboardPage(val title: String, val entries: List<LeaderboardEntry>,
     val self: LeaderboardEntry? = null, val nextCursor: String? = null)

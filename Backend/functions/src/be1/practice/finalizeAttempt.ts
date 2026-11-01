@@ -2,6 +2,7 @@ import {HttpsError} from "firebase-functions/v2/https";
 import {adminDb} from "../../config/firebaseAdmin";
 import {transactionWithRetry} from "../databaseTransaction";
 import type {BattleAchievement} from "../battle/battleAchievements";
+import {unlockPracticeAchievement} from "../community/practiceNotifications";
 import {
   initializeAttemptAnswers, projectAttemptState, StoredAnswer, StoredAttempt,
   updateAttemptCounts,
@@ -386,16 +387,7 @@ async function finalizeAttemptStored(
     // Check achievement unlock for practice 20 (idempotent)
     if (Number(progressTx.snapshot.val()?.completedAttempts) >= 20) {
       const unlockedAt = Date.now();
-      await adminDb
-        .ref(`userAchievements/${uid}/practice_20_${topicId}`)
-        .transaction((ua) => {
-          if (ua && ua.unlockedAt > 0) return ua;
-          return {
-            progress: 20,
-            unlockedAt,
-            ruleVersion: "v1",
-          };
-        });
+      await unlockPracticeAchievement(uid, topicId, unlockedAt);
     }
   }
 

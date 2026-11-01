@@ -16,6 +16,7 @@ if (!isolated && !local) throw new Error('Start the learning worker using npm ru
 const require = createRequire(import.meta.url)
 const {runLearningMaintenance} = require('../lib/be1/practice/learningMaintenance.js')
 const {runBattleMaintenance} = require('../lib/be1/battle/battleMaintenance.js')
+const {runCommunityMaintenance} = require('../lib/be1/community/communityMaintenance.js')
 const {adminDb} = require('../lib/config/firebaseAdmin.js')
 const {deleteApp} = require('firebase-admin/app')
 let stopping = false
@@ -25,10 +26,10 @@ const once = process.argv.includes('--once')
 console.log('Learning and battle worker: deadlines, reconnect and settlement recovery ready.')
 try {
   do {
-    const passes = await Promise.allSettled([runLearningMaintenance(), runBattleMaintenance()])
+    const passes = await Promise.allSettled([runLearningMaintenance(), runBattleMaintenance(), runCommunityMaintenance()])
     for (const [index, pass] of passes.entries()) {
       if (pass.status !== 'rejected') continue
-      console.error(`${index === 0 ? 'Learning' : 'Battle'} worker pass failed:`,
+      console.error(`${['Learning', 'Battle', 'Community'][index]} worker pass failed:`,
         pass.reason.code || pass.reason.message)
       if (once) process.exitCode = 1
     }

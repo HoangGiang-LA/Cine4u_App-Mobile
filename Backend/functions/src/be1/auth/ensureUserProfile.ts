@@ -1,5 +1,6 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
+import {syncLeaderboardPlayer} from "../community/leaderboardProjection";
 
 
 /**
@@ -180,6 +181,7 @@ export const ensureUserProfile = onCall(
       // Only these fields are patched, together. Existing balances, access,
       // progress, roles and other profile fields are never replaced by a sync.
       if (Object.keys(updates).length) await adminDb.ref().update(updates);
+      await syncLeaderboardPlayer(uid);
 
       return {
         serverNow: Date.now(),

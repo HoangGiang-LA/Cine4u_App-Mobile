@@ -1,7 +1,7 @@
-# Hợp đồng tích hợp v1 — chưa có backend
+# Hợp đồng tích hợp v1
 
 - `business-rules.v1.json`: chính sách đã chốt và các mặc định triển khai được ghi riêng.
-- `mobile.v1.mjs`: JSON Schema cho request/response của 13 callable Android; không chứa code xử lý server.
+- `mobile.v1.mjs`: JSON Schema cho request/response của 15 callable Android, gồm lưu lựa chọn và phân trang thông báo; code server nằm trong Backend/functions.
 - `admin.v1.json`: ánh xạ 22 phương thức AdminService, gồm 21 callable đề xuất và một `reset` chỉ dùng demo. Kiểu payload đầy đủ tiếp tục lấy từ `admin-web/src/domain.ts`.
 - `database.rules.proposed.json`: Rules client để kiểm thử bằng emulator, **chưa deploy**.
 
@@ -15,6 +15,7 @@ Giữ nguyên UI theo Figma. Backend triển khai đúng model/interface để t
 | Cả hai mất kết nối | Khi cả hai đều quá thời hạn reconnect 30 giây và trận chưa được chốt: hòa, không đổi rating/xu |
 | Thử thách học qua ngày | Đến 00:00 `Asia/Ho_Chi_Minh` thì phiên cũ hết hạn, không thưởng; lượt ngày mới độc lập |
 | Thi đấu giai đoạn đầu | Chỉ thi đấu nhanh chạy thật; `daily/create/join` giữ nguyên giao diện và hợp đồng để phát triển sau |
+| Tài khoản bị khóa/xóa | Giữ tài khoản bị khóa trong bảng; ẩn tài khoản đã xóa khỏi bảng mới |
 
 Để không đổi DTO/UI, thử thách hết ngày trả `status: abandoned`, `result.outcome: abandoned`, `coins: 0`. `deadlineAt = min(thời điểm bắt đầu câu + 30 giây, mốc 00:00)`. Không hồi sinh phiên đã hết hạn khi client resume; không thay đổi kết quả đã được chốt trước mốc này.
 

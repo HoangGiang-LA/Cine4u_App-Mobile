@@ -96,52 +96,95 @@ class CatalogViewModel(app: Application, private val catalogRepository: () -> Ca
     }
 }
 
-class UserDataViewModel(app: Application) : AndroidViewModel(app) {
-    private val container = (app as EnglishBattleApplication).container
+class UserDataViewModel(app: Application, private val repository: GameRepository) : AndroidViewModel(app) {
+    constructor(app: Application) : this(app, (app as EnglishBattleApplication).container.game)
     private var scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
     private val _dashboard = MutableStateFlow(LoadState<Dashboard>())
     val dashboard = _dashboard.asStateFlow()
     private val _board = MutableStateFlow(LoadState<LeaderboardPage>())
     val board = _board.asStateFlow()
+    private val _notifications = MutableStateFlow(LoadState<NotificationPage>())
+    val notifications = _notifications.asStateFlow()
     private val _message = MutableStateFlow<String?>(null)
     val message = _message.asStateFlow()
     private var dashboardJob: Job? = null
     private var boardJob: Job? = null
+    private var notificationsJob: Job? = null
+    private var boardGeneration = 0
+    private var notificationsGeneration = 0
+    private var sessionGeneration = 0
+    private var dashboardGeneration = 0
     var period = "week"; private set
     fun connect() {
         clear()
         scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
         refresh(); loadBoard("week")
     }
-    fun clear() { scope.cancel(); _dashboard.value = LoadState(); _board.value = LoadState(); _message.value = null }
+    fun clear() { sessionGeneration++; dashboardGeneration++; boardGeneration++; notificationsGeneration++; scope.cancel(); _dashboard.value = LoadState(); _board.value = LoadState(); _notifications.value = LoadState(); _message.value = null }
     fun refresh() {
+        val generation = ++dashboardGeneration
         dashboardJob?.cancel()
         _dashboard.update { it.copy(loading = true, error = null) }
         dashboardJob = scope.launch {
             try {
-                val repo = container.game
-                _dashboard.value = LoadState(repo.dashboard())
-            } catch (e: Exception) { _dashboard.update { it.copy(loading = false, error = friendlyError(e)) } }
+                val data = repository.dashboard()
+                if (generation != dashboardGeneration) return@launch
+                _dashboard.value = LoadState(data)
+                _notifications.update { state -> state.copy(data = state.data?.copy(unreadCount = data.unreadNotificationCount)) }
+            } catch (e: Exception) { val error = friendlyError(e); if (generation == dashboardGeneration) _dashboard.update { it.copy(loading = false, error = error) } }
         }
     }
     fun loadBoard(period: String, more: Boolean = false) {
-        if (more && _board.value.loading) return
+        if (more && (_board.value.loading || period != this.period || _board.value.data?.nextCursor == null)) return
+        val generation = ++boardGeneration
         boardJob?.cancel(); this.period = period
         val previous = if (more) _board.value.data else null
         _board.value = LoadState(previous, loading = true)
         boardJob = scope.launch {
             try {
-                val page = container.game.leaderboard(period, previous?.nextCursor)
+                val page = repository.leaderboard(period, previous?.nextCursor)
+                if (generation != boardGeneration) return@launch
                 _board.value = LoadState(if (previous == null) page else page.copy(entries = (previous.entries + page.entries).distinctBy { it.uid }))
-            } catch (e: Exception) { _board.value = LoadState(previous, error = friendlyError(e)) }
+            } catch (e: Exception) { val error = friendlyError(e); if (generation == boardGeneration) _board.value = LoadState(previous, error = error) }
+        }
+    }
+    fun loadNotifications(more: Boolean = false) {
+        if (more && (_notifications.value.loading || _notifications.value.data?.nextCursor == null)) return
+        val generation = ++notificationsGeneration
+        notificationsJob?.cancel()
+        val previous = if (more) _notifications.value.data else null
+        _notifications.value = LoadState(previous, loading = true)
+        notificationsJob = scope.launch {
+            try {
+                val page = repository.notifications(previous?.nextCursor)
+                if (generation != notificationsGeneration) return@launch
+                _notifications.value = LoadState(if (previous == null) page else page.copy(
+                    entries = (previous.entries + page.entries).associateBy { it.id }.values.toList()))
+            } catch (e: Exception) { val error = friendlyError(e); if (generation == notificationsGeneration) _notifications.value = LoadState(previous, error = error) }
         }
     }
     fun markRead(ids: List<String>) {
         if (ids.isEmpty()) return
+        val generation = sessionGeneration
         scope.launch {
-            try { container.game.markRead(ids); refresh() }
-            catch (e: Exception) { _message.value = friendlyError(e) }
+            try { repository.markRead(ids); if (generation == sessionGeneration) { updateReadState(ids.toSet()); refresh() } }
+            catch (e: Exception) { val error = friendlyError(e); if (generation == sessionGeneration) _message.value = error }
         }
+    }
+    fun markAllRead() {
+        val generation = sessionGeneration
+        scope.launch {
+            try { repository.markAllNotificationsRead(); if (generation == sessionGeneration) { updateReadState(null); refresh() } }
+            catch (e: Exception) { val error = friendlyError(e); if (generation == sessionGeneration) _message.value = error }
+        }
+    }
+    private fun updateReadState(ids: Set<String>?) {
+        notificationsGeneration++; notificationsJob?.cancel()
+        _notifications.update { state -> state.data?.let { page ->
+            val changed = page.entries.count { !it.read && (ids == null || it.id in ids) }
+            state.copy(loading = false, error = null, data = page.copy(entries = page.entries.map { if (ids == null || it.id in ids) it.copy(read = true) else it },
+                unreadCount = if (ids == null) 0 else (page.unreadCount - changed).coerceAtLeast(0)))
+        } ?: state }
     }
     fun dismiss() { _message.value = null }
 }

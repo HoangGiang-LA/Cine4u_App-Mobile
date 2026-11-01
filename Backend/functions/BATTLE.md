@@ -93,8 +93,8 @@ kiểm tra Auth/access, chỉ cập nhật thông báo đúng UID, không tạo 
 không đặt lại thời điểm đọc khi gửi lại. Không thêm quyền client ghi database.
 
 Transaction trên trạng thái phiên và enqueue công việc thử lại tối đa 8 lần
-khi chính SDK hủy với `Error("set")` do một projection đồng thời ghi vào cùng
-nhánh. Lỗi quyền truy cập/kết nối khác được giữ nguyên. Callback tiếp tục đọc
+khi chính SDK hủy với `Error("set")` hoặc `Error("maxretry")` do tranh chấp ghi
+đồng thời. Lỗi quyền truy cập/kết nối khác được giữ nguyên. Callback tiếp tục đọc
 trạng thái mới, giữ kết quả/grant đã chốt; không tính thưởng lại khi retry.
 
 ## Chạy và kiểm tra

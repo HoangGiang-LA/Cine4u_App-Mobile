@@ -68,6 +68,8 @@ class PlayBattleFlowTest {
 }
 
 private class BattleFlowRepository(private val matched: Boolean) : GameRepository {
+    override suspend fun notifications(cursor: String?): NotificationPage = error("Unused")
+    override suspend fun markAllNotificationsRead(): Unit = error("Unused")
     val result = QuizResult("battle_flow", QuizMode.BATTLE, 0, 10, 0, outcome = "draw")
     private val waiting = AttemptState("battle_flow", QuizMode.BATTLE, "", emptyList(), 0, 30000, status = "waiting")
     var resumeCalls = 0

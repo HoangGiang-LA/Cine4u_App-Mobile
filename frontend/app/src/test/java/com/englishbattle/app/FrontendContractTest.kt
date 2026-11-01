@@ -61,4 +61,23 @@ class FrontendContractTest {
         assertEquals(9, dashboard.achievements.single().progress)
         assertEquals(20, dashboard.achievements.single().threshold)
     }
+    @Test fun notificationCountIncludesItemsOutsideTheDashboardWindow() {
+        val d = WireCodec.dashboard(JSONObject("""{"rating":0,"coins":0,"unreadNotificationCount":80,"notifications":[]}"""))
+        assertEquals(80, d.unreadNotificationCount)
+    }
+    @Test fun notificationPageKeepsCountersAndCursor() {
+        val p = WireCodec.notifications(JSONObject("""{"entries":[],"unreadCount":80,"totalCount":90,"nextCursor":"next"}"""))
+        assertEquals(80, p.unreadCount); assertEquals(90, p.totalCount); assertEquals("next", p.nextCursor)
+    }
+    @Test fun unsafeNotificationDestinationIsRejected() {
+        val json = JSONObject("""{"entries":[{"id":"x","title":"X","body":"Body","destination":"https://example.test","read":false,"createdAt":1}],"unreadCount":1,"totalCount":1,"nextCursor":null}""")
+        assertThrows(IllegalArgumentException::class.java) { WireCodec.notifications(json) }
+    }
+    @Test fun leaderboardRejectsDuplicatePlayersAndInvalidRanks() {
+        val json = JSONObject("""{"title":"Current","entries":[{"uid":"x","name":"X","rating":0,"rank":0}],"self":null,"nextCursor":null}""")
+        assertThrows(IllegalArgumentException::class.java) { WireCodec.leaderboard(json) }
+        json.getJSONArray("entries").getJSONObject(0).put("rank", 1)
+        json.getJSONArray("entries").put(JSONObject("""{"uid":"x","name":"X","rating":0,"rank":2}"""))
+        assertThrows(IllegalArgumentException::class.java) { WireCodec.leaderboard(json) }
+    }
 }

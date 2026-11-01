@@ -4,6 +4,7 @@ import type {UserSettlementModel} from "../practice/finalizeAttempt";
 import {contentId, record} from "../practice/contentValidation";
 import {transactionWithRetry} from "../databaseTransaction";
 import {enqueueBattleWork} from "./battleWork";
+import {publishNotification} from "../community/notifications";
 
 type Condition = "battle_wins" | "battle_win_streak" | "settled_battle_count";
 export interface BattleAchievement {
@@ -137,15 +138,13 @@ export async function projectBattleAchievements(
         };
       });
     if (!achievement.unlockedAt || !achievement.notificationId) continue;
-    await transactionWithRetry(
-      adminDb.ref(`notifications/${uid}/${achievement.notificationId}`),
-      (stored) => stored || {
-        title: "Mở khóa thành tích",
-        body: `Bạn đã mở khóa thành tích: ${achievement.title}.`,
-        targetType: "Achievements",
-        sourceType: "battle_achievement", sourceId: id,
-        createdAt: achievement.unlockedAt,
-      });
+    await publishNotification(uid, achievement.notificationId, {
+      title: "Mở khóa thành tích",
+      body: `Bạn đã mở khóa thành tích: ${achievement.title}.`,
+      targetType: "Achievements",
+      sourceType: "battle_achievement", sourceId: id,
+      createdAt: achievement.unlockedAt,
+    });
   }
   await transactionWithRetry(adminDb.ref(`userSettlements/${uid}`), (s) => {
     if (!s) return s;

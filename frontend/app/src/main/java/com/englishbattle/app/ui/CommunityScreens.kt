@@ -27,7 +27,7 @@ import java.time.*
                 Segments(listOf("Tuần", "Tháng"), if (period == "week") 0 else 1) { select(if (it == 0) "week" else "month") }
                 DataContent(state, { select(period) }) { page ->
                     Small(page.title, Modifier.fillMaxWidth().wrapContentWidth())
-                    if (page.entries.isEmpty()) EmptyPanel("Chưa có người chơi trong kỳ này.")
+                    if (page.entries.isEmpty()) EmptyPanel("Chưa có người chơi trên bảng xếp hạng.")
                     else Row(Modifier.fillMaxWidth().heightIn(min = 240.dp), verticalAlignment = Alignment.Bottom, horizontalArrangement = Arrangement.spacedBy(6.dp)) {
                         listOf(2, 1, 3).forEach { rank ->
                             val entry = page.entries.find { it.rank == rank }
@@ -35,7 +35,7 @@ import java.time.*
                         }
                     }
                     Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
-                        Text("Đường đua ${if (period == "week") "tuần" else "tháng"} này", fontWeight = FontWeight.Bold)
+                        Text("Thứ hạng hiện tại", fontWeight = FontWeight.Bold)
                     }
                     page.entries.filter { it.rank > 3 }.forEach { entry ->
                         Row(Modifier.fillMaxWidth().padding(vertical = 6.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {

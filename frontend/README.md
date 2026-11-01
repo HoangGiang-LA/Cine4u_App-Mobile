@@ -6,7 +6,7 @@ Web quản trị nằm riêng trong [`admin-web/`](admin-web/README.md), dùng R
 
 ## Android người dùng
 
-Ứng dụng Kotlin + Jetpack Compose. Frontend đã có Firebase Authentication thật, đọc danh mục Realtime Database và lớp giao tiếp để tích hợp backend học tập/thi đấu.
+Ứng dụng Kotlin + Jetpack Compose, dùng Firebase Authentication và Realtime Database thật. Các luồng học tập, thi đấu nhanh, bảng xếp hạng và thông báo gọi backend trong `Backend/functions`.
 
 ## Chạy
 
@@ -37,7 +37,7 @@ Chỉ bản debug cho phép HTTP tới địa chỉ máy tính. Bản release lu
 ## Chế độ dữ liệu
 
 - **Firebase thật (mặc định):** đăng ký/đăng nhập email, đặt lại mật khẩu, đổi tên/email và khôi phục phiên. Danh mục đọc `categories`/`topics` published. Cần bật Email/Password và cấp Rules phù hợp. Lỗi dịch vụ được hiển thị, không chuyển sang dữ liệu giả.
-- **Backend:** các callable đã có trong `Backend/functions` chạy trên Emulator khi phát triển. Chức năng có callable chưa được export vẫn cần triển khai tiếp. Thông báo đẩy chưa có dịch vụ FCM.
+- **Backend:** 15 callable Android đã được export trong `Backend/functions`, chạy trên Functions Emulator khi phát triển. Thông báo trong app đã hoạt động; thông báo đẩy FCM chưa được triển khai.
 
 Tên được đồng bộ từ Auth sang RTDB sau khi lưu; khi mở lại app hoặc có mạng trở lại, app tải lại hồ sơ Auth và gọi `ensureUserProfile` để phục hồi đồng bộ bị gián đoạn. Email mới chỉ được đồng bộ sau khi Firebase Auth đã xác nhận thay đổi. Bước đồng bộ chỉ sửa tên/email và thời điểm cập nhật, giữ dữ liệu nghiệp vụ hiện có.
 
@@ -62,6 +62,11 @@ Kết quả kiểm thử trước đây: [QA ngày 24/10/2026](docs/QA-2026-10-2
 `contracts/database.rules.proposed.json` là bản Rules đề xuất được kiểm thử bằng emulator, yêu cầu `accountAccess` active và chặn client ghi dữ liệu. Rules gốc deny-all được giữ nguyên; bản đề xuất chưa được triển khai lên Firebase.
 
 ## Mã nguồn
+
+Bảng xếp hạng và thông báo đã nối Functions: hai tab cùng rating tích lũy,
+phân trang theo snapshot và có vị trí bản thân. Trung tâm thông báo tải thêm,
+hiển thị tổng chưa đọc của tài khoản và đánh dấu tất cả; phản hồi cũ không ghi
+đè tab hoặc trạng thái đọc mới. Vận hành và API: [COMMUNITY](../Backend/functions/COMMUNITY.md).
 
 `data/` chứa model, repository interfaces, Firebase adapter và DTO codec. `ui/UserViewModels.kt` quản lý trạng thái theo nhóm chức năng; `ui/App.kt` điều hướng, lifecycle và phiên người dùng. Các màn hình có loading/rỗng/lỗi/retry và hỗ trợ cuộn, TTS, kích thước chữ lớn.
 

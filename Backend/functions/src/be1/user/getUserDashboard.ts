@@ -1,6 +1,8 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {refreshBattleAchievements} from "../battle/battleAchievements";
+import {notificationCounts, notificationSlice} from
+  "../community/notifications";
 
 const getDateKey = (): string => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -69,7 +71,6 @@ export const getUserDashboard = onCall(
         skillsSnap,
         achievementsSnap,
         userAchievementsSnap,
-        notificationsSnap,
         ledgerSnap,
         practiceHistorySnap,
         battleHistorySnap,
@@ -83,10 +84,6 @@ export const getUserDashboard = onCall(
         adminDb.ref("achievements").get(),
         adminDb.ref(`userAchievements/${uid}`).get(),
 
-        adminDb.ref(`notifications/${uid}`)
-          .orderByChild("createdAt")
-          .limitToLast(50)
-          .get(),
 
         adminDb.ref(`coinLedger/${uid}`)
           .orderByChild("createdAt")
@@ -252,55 +249,8 @@ export const getUserDashboard = onCall(
         }];
       });
 
-      const allowedDestinations = [
-        "Achievements",
-        "Challenge",
-        "Practice",
-        "Battle",
-        "Leaderboard",
-        "History",
-        "Wallet",
-      ] as const;
-
-      const notificationsData = refreshed?.notifications ??
-        notificationsSnap.val() ?? {};
-
-      const notifications = Object.entries(notificationsData)
-        .flatMap(([notificationId, value]) => {
-          if (
-            value === null ||
-      typeof value !== "object" ||
-      Array.isArray(value)
-          ) {
-            return [];
-          }
-
-          const item = value as Record<string, unknown>;
-
-          // Chi chap nhan destination thuoc hop dong FE.
-          const destination = item.targetType;
-
-          if (
-            typeof destination !== "string" ||
-      !allowedDestinations.some((d) => d === destination)
-          ) {
-            return [];
-          }
-
-          return [{
-            id: notificationId,
-            title: typeof item.title === "string" ?
-              item.title : "",
-            body: typeof item.body === "string" ?
-              item.body : "",
-            destination,
-            read: typeof item.readAt === "number" &&
-        item.readAt > 0,
-            createdAt: nonNegativeInt(item.createdAt),
-          }];
-        })
-        .sort((a, b) => b.createdAt - a.createdAt)
-        .slice(0, 50);
+      const counts = await notificationCounts(uid);
+      const notifications = (await notificationSlice(uid, counts, 50)).entries;
 
       const ledgerData = ledgerSnap.val() ?? {};
 
@@ -477,6 +427,7 @@ return {
     history,
     achievements,
     notifications,
+    unreadNotificationCount: counts.unreadCount,
     ledger,
     skills,
   },

@@ -87,6 +87,7 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
     val catalog by catalogVM.state.collectAsStateWithLifecycle()
     val dashboard by dataVM.dashboard.collectAsStateWithLifecycle()
     val board by dataVM.board.collectAsStateWithLifecycle()
+    val notifications by dataVM.notifications.collectAsStateWithLifecycle()
     val message by dataVM.message.collectAsStateWithLifecycle()
     val attempt by play.attempt.collectAsStateWithLifecycle()
     val ticket by play.ticket.collectAsStateWithLifecycle()
@@ -137,6 +138,7 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
     }
     LaunchedEffect(route) {
         if (route == Route.Leaderboard) dataVM.loadBoard(dataVM.period)
+        if (route == Route.Notifications) dataVM.loadNotifications()
         if (route == Route.Matching && ticket.data == null && play.hasPendingMatch && !busy) play.retryMatch()
         if (route in listOf(Route.Profile, Route.History, Route.LearningHistory, Route.Challenge, Route.Progress, Route.Wallet, Route.Notifications, Route.Achievements)) dataVM.refresh()
         if (route in listOf(Route.PracticeResult, Route.BattleResult, Route.Review) && result.data == null && !result.loading) resultId?.let(play::viewResult)
@@ -175,7 +177,8 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
                 Route.Profile -> ProfileScreen(user, dashboard, authState.busy, ::go, authVM::updateName, dataVM::refresh)
                 Route.Wallet -> WalletScreen(dashboard, ::back, dataVM::refresh)
                 Route.Achievements -> AchievementsScreen(dashboard, ::back, dataVM::refresh)
-                Route.Notifications -> NotificationsScreen(dashboard, ::back, dataVM::refresh, dataVM::markRead) { destination ->
+                Route.Notifications -> NotificationsFeedScreen(notifications, ::back, { dataVM.loadNotifications() },
+                    dataVM::markRead, dataVM::markAllRead, { dataVM.loadNotifications(true) }) { destination ->
                     val target = runCatching { Route.valueOf(destination) }.getOrDefault(Route.Notifications)
                     if (target in listOf(Route.Achievements, Route.Challenge, Route.Practice, Route.Battle, Route.Leaderboard, Route.History, Route.Wallet)) go(target)
                 }
