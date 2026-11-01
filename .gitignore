@@ -116,3 +116,6 @@ Thumbs.db
 # Firebase generated agent files
 /.agents/
 /skills-lock.json
+
+# Local Emulator data, exports and tool cache
+/.local/

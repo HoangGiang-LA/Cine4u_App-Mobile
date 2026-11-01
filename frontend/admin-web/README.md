@@ -1,10 +1,19 @@
 # English Battle — Web admin
 
+Chạy bằng Spark/Emulator, không cần khóa thật: xem
+[hướng dẫn local cho cả nhóm](../../docs/LOCAL-EMULATOR.md). Script Start-AdminWeb.ps1
+bật VITE_USE_FIREBASE_EMULATORS và kết nối cả Auth, Database, Functions tới loopback.
+Lệnh npm run dev thông thường vẫn dùng cấu hình Firebase hiện có nếu không bật flag.
+
 Frontend quản trị React + TypeScript + Vite, chạy độc lập với Gradle/Android. Đăng nhập bằng Firebase Auth, provision qua Callable BE1 `ensureUserProfile`, sau đó xác nhận quyền qua HTTP `getAdminSession`. Các trang nghiệp vụ vẫn dùng `MockAdminService`, chưa ghi dữ liệu quản trị lên Firebase.
 
 ## Chạy trên máy của bạn
 
 Mở terminal trong thư mục `frontend/admin-web`:
+
+Dùng Node.js **24 LTS** để thống nhất với Functions/Emulator. Nếu chỉ chạy Web
+với Node 22, cần ít nhất 22.13 cho bộ dependencies build/test hiện tại; hướng dẫn
+"Node 22+" không có nghĩa mọi bản 22.0 trở lên đều tương thích.
 
 ```powershell
 npm ci
@@ -49,8 +58,8 @@ Giữ rating và xu; không có XP/level, Premium, thanh toán hoặc doanh thu.
 
 ## Dữ liệu và giới hạn
 
-- Các trang quản trị vẫn là **demo frontend**, kể cả bản `npm run build`. Phần xác thực đã dùng Firebase SDK thật; đăng nhập thành công mở màn hình trạng thái tích hợp, chưa mở dữ liệu admin thật. Nút demo không xác thực quyền quản trị.
-- Dữ liệu mô phỏng được lưu trong `localStorage` theo khóa `english-battle.admin.demo.v1`. Phiên demo lưu trong `sessionStorage`. Thao tác trong demo không tạo tài khoản hoặc thay đổi dữ liệu Firebase thật.
+- Các trang quản trị vẫn dùng **dữ liệu mô phỏng**, kể cả bản `npm run build`. Firebase Auth, BE1 Callable và HTTP server xác minh quyền trước khi mở workspace; không có nút bỏ qua xác thực.
+- Dữ liệu nghiệp vụ mô phỏng lưu trong `localStorage` theo khóa `english-battle.admin.demo.v1`. Phiên đăng nhập do Firebase Auth quản lý bằng session persistence. Thao tác nghiệp vụ mô phỏng không tạo tài khoản hoặc thay đổi dữ liệu Firebase thật.
 - Mỗi trình duyệt có bộ dữ liệu riêng. Đăng xuất giữ dữ liệu; chọn menu tài khoản → **Profile & workspace → Reset demo data** và nhập `RESET` để khôi phục mẫu. Dữ liệu demo không phải cơ chế đồng bộ nhiều admin.
 - Người dùng bị xóa được ẩn và đổi thành “Deleted user” trong lịch sử demo. Chưa có tác động đến Firebase Auth hoặc phiên đang chạy trên điện thoại.
 - Câu hỏi thay đổi có phiên bản mới; demo giữ tối đa 20 bản trước đó. Đây không phải hệ thống lưu trữ lịch sử production.

@@ -45,6 +45,10 @@ export function authError(error: unknown) {
   const code =
     typeof error === 'object' && error !== null && 'code' in error ? String(error.code) : ''
   const messages: Record<string, string> = {
+    'emulator/invalid-config': 'Local Firebase configuration is invalid. Use the local startup script.',
+    'profile/unavailable': 'Account initialization failed. Check the Functions service and try again.',
+    'functions/permission-denied': 'Account initialization was denied. Your account may be blocked.',
+    'functions/unauthenticated': 'Account initialization requires a new sign-in. Sign out and try again.',
     'backend/not-configured': 'The administration server has not been configured.',
     'backend/unavailable':
       'Could not reach the administration server. Check the connection and try again.',

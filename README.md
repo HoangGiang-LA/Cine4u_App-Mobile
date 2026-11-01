@@ -14,6 +14,8 @@
 
 </div>
 
+Chạy local bằng Firebase Spark/Emulator: xem [hướng dẫn cho cả nhóm](docs/LOCAL-EMULATOR.md).
+
 ---
 
 ## 📑 Table of Contents

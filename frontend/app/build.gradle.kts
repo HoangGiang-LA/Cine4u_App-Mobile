@@ -1,9 +1,17 @@
+import java.util.Properties
+
 plugins {
     id("com.android.application")
     id("org.jetbrains.kotlin.android")
     id("org.jetbrains.kotlin.plugin.compose")
     id("com.google.gms.google-services")
 }
+val localSettings = Properties().apply {
+    val file = rootProject.file("local.properties")
+    if (file.exists()) file.inputStream().use { load(it) }
+}
+val firebaseEmulators = providers.gradleProperty("firebaseEmulators")
+    .orElse(localSettings.getProperty("firebaseEmulators", "false")).get().toBooleanStrict()
 android {
     namespace = "com.englishbattle.app"
     compileSdk = 35
@@ -16,6 +24,14 @@ android {
         testInstrumentationRunner = "androidx.test.runner.AndroidJUnitRunner"
     }
     buildFeatures { compose = true; buildConfig = true }
+    buildTypes {
+        getByName("debug") {
+            buildConfigField("boolean", "USE_FIREBASE_EMULATORS", firebaseEmulators.toString())
+        }
+        getByName("release") {
+            buildConfigField("boolean", "USE_FIREBASE_EMULATORS", "false")
+        }
+    }
     compileOptions {
         sourceCompatibility = JavaVersion.VERSION_17
         targetCompatibility = JavaVersion.VERSION_17
