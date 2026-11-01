@@ -16,7 +16,7 @@ export const result = object({attemptId: str, mode: modes, correct: int, total: 
 const receipt = object({questionId: str, optionId: nullableId, correct: {type: ['boolean', 'null']}}, ['questionId', 'optionId']);
 export const attempt = {...object({id: str, mode: modes, topicId: text, questions: list(question), index: int, deadlineAt: int,
   receipts: list(receipt), status: {enum: ['active', 'waiting', 'completed', 'abandoned']}, opponentName: text,
-  result: {anyOf: [result, {type: 'null'}]}, reconnectDeadlineAt: {anyOf: [int, {type: 'null'}]}}, ['id', 'mode', 'questions', 'index', 'deadlineAt', 'receipts', 'status']),
+  result: {anyOf: [result, {type: 'null'}]}, selectedOptionId: nullableId, reconnectDeadlineAt: {anyOf: [int, {type: 'null'}]}}, ['id', 'mode', 'questions', 'index', 'deadlineAt', 'receipts', 'status']),
   allOf: [{if: {properties: {status: {const: 'active'}}}, then: {properties: {questions: {minItems: 1}}}},
     {if: {properties: {status: {enum: ['completed', 'abandoned']}}}, then: {required: ['result'], properties: {result}}}]};
 const entry = object({uid: str, name: str, rank: {...int, minimum: 1}, rating: int});
@@ -40,7 +40,8 @@ export const mobileContract = {
       allOf: [{if: {properties: {mode: {const: 'PRACTICE'}}}, then: {required: ['topicId'], properties: {topicId: str}}}]}, response: response({attempt}), writes: true},
     resumeAttempt: {request: object({attemptId: str}), response: response({attempt})},
     submitAttemptAnswer: {request: object({attemptId: str, questionId: str, optionId: nullableId, requestId: str}), response: response({attempt}), writes: true},
-    advanceAttempt: {request: object({attemptId: str, requestId: str}), response: response({attempt}), writes: true},
+    saveAttemptSelection: {request: object({attemptId: str, questionId: str, optionId: str, requestId: str}), response: response({accepted: {type: 'boolean'}}), writes: true},
+    advanceAttempt: {request: object({attemptId: str, requestId: str, expectedIndex: {...int, maximum: 19}}, ['attemptId', 'requestId']), response: response({attempt}), writes: true},
     leaveAttempt: {request: object({attemptId: str, requestId: str}), response: response({attempt}), writes: true},
     findBattle: {request: {...object({kind: {enum: ['quick', 'daily', 'create', 'join']}, roomCode: nullableId, requestId: str}, ['kind', 'requestId']),
       allOf: [{if: {properties: {kind: {const: 'join'}}}, then: {required: ['roomCode'], properties: {roomCode: {type: 'string', pattern: '^[A-Z0-9]{6}$'}}}}]}, response: response({ticket}), writes: true, phaseOneKinds: ['quick']},

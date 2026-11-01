@@ -126,8 +126,13 @@ class FirebaseGameRepository(private val clock: ServerClock,
     override suspend fun resume(attemptId: String) = attempt(call("resumeAttempt", mapOf("attemptId" to attemptId)))
     override suspend fun submit(attemptId: String, questionId: String, optionId: String?, requestId: String) = attempt(call("submitAttemptAnswer",
         mapOf("attemptId" to attemptId, "questionId" to questionId, "optionId" to optionId, "requestId" to requestId)))
-    override suspend fun advance(attemptId: String, requestId: String) = attempt(call("advanceAttempt",
-        mapOf("attemptId" to attemptId, "requestId" to requestId)))
+    override suspend fun saveSelection(attemptId: String, questionId: String, optionId: String, requestId: String) {
+        call("saveAttemptSelection", mapOf("attemptId" to attemptId, "questionId" to questionId,
+            "optionId" to optionId, "requestId" to requestId))
+    }
+    override suspend fun advance(attemptId: String, requestId: String, expectedIndex: Int?) = attempt(call("advanceAttempt",
+        mapOf("attemptId" to attemptId, "requestId" to requestId) +
+            (expectedIndex?.let { mapOf("expectedIndex" to it) } ?: emptyMap())))
     override suspend fun leave(attemptId: String, requestId: String) = attempt(call("leaveAttempt",
         mapOf("attemptId" to attemptId, "requestId" to requestId)))
     override suspend fun findMatch(kind: String, code: String?, requestId: String) = WireCodec.ticket(call("findBattle",

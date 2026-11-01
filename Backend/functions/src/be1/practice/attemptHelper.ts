@@ -56,6 +56,7 @@ export interface WireAttempt {
   opponentName: string;
   result: WireResult | null;
   reconnectDeadlineAt: number | null;
+  selectedOptionId?: string | null;
 }
 
 /**
@@ -115,7 +116,7 @@ export async function buildAttemptReviews(
       );
 
     let pickedId: string | null = null;
-    if (ans && !ans.timedOut && typeof ans.selectedOptionId === "string") {
+    if (ans && typeof ans.selectedOptionId === "string") {
       pickedId = ans.selectedOptionId;
     }
 
@@ -202,10 +203,7 @@ export async function buildAttemptReviews(
   if (Object.keys(newReviewsToPersist).length > 0) {
     await adminDb
       .ref(`attemptReviews/${uid}/${attemptId}`)
-      .update(newReviewsToPersist)
-      .catch((err) => {
-        console.warn("Failed to persist attemptReviews", {uid, attemptId, err});
-      });
+      .update(newReviewsToPersist);
   }
 
   return reviews;
@@ -253,12 +251,14 @@ export async function buildAttemptResponse(
   }
 
   // Load answers/receipts
-  const aSnap = await adminDb.ref(`attemptAnswers/${uid}/${attemptId}`).get();
+  const answers = attemptData.answerStateVersion === 1 ?
+    attemptData.answers || {} :
+    (await adminDb.ref(`attemptAnswers/${uid}/${attemptId}`).get()).val() || {};
 
   const receipts: WireReceipt[] = [];
 
-  if (aSnap.exists()) {
-    const aData = aSnap.val() as Record<string, Record<string, unknown>>;
+  if (Object.keys(answers).length) {
+    const aData = answers as Record<string, Record<string, unknown>>;
 
     const sortedAnswers = Object.values(aData).sort(
       (a, b) => ((a.ordinal as number) ?? 0) - ((b.ordinal as number) ?? 0),
@@ -279,6 +279,9 @@ export async function buildAttemptResponse(
   const status = (attemptData.status as string) ?? "active";
   const topicId = (attemptData.topicId as string) ?? "";
   const deadlineAt = (attemptData.deadlineAt as number) ?? 0;
+  const selections = attemptData.selections as Record<
+    string, {optionId: string}
+  > | undefined;
 
   // Build result if completed or abandoned
   let result: WireResult | null = null;
@@ -288,7 +291,7 @@ export async function buildAttemptResponse(
       attemptId,
       status,
       questions,
-      aSnap.val() as Record<string, Record<string, unknown>>,
+      answers as Record<string, Record<string, unknown>>,
     );
     result = {
       attemptId,
@@ -319,6 +322,7 @@ export async function buildAttemptResponse(
       opponentName: "",
       result,
       reconnectDeadlineAt: null,
+      selectedOptionId: selections?.[currentIndex]?.optionId || null,
     },
   };
 }
@@ -376,46 +380,22 @@ export function isDailyExpired(
   attempt: Record<string, unknown>,
   now = Date.now(),
 ): boolean {
+  if (normalizeMode(attempt.mode) !== "DAILY" ||
+      attempt.status === "completed" || attempt.status === "abandoned") {
+    return false;
+  }
+  const endsAt = dailyEndsAt(attempt);
+  // A fully resolved session finished before midnight may settle after a
+  // worker restart. Unfinished sessions still expire at midnight.
+  const finishedAt = Number(attempt.finishedAt);
+  if (attempt.status === "waiting" && finishedAt > 0 && finishedAt < endsAt) {
+    return false;
+  }
   return (
-    normalizeMode(attempt.mode) === "DAILY" &&
     attempt.status !== "completed" &&
     attempt.status !== "abandoned" &&
-    now >= dailyEndsAt(attempt)
+    now >= endsAt
   );
-}
-
-/**
- * Reconcile attempt counters from authoritative attemptAnswers.
- * @param {string} uid Owner of the attempt.
- * @param {string} attemptId Attempt to update.
- * @param {number} now Timestamp for the counter update.
- */
-export async function reconcileAttemptCounters(
-  uid: string,
-  attemptId: string,
-  now: number = Date.now(),
-): Promise<Record<string, unknown>> {
-  const aSnap = await adminDb.ref(`attemptAnswers/${uid}/${attemptId}`).get();
-  const allAnswers = (aSnap.val() || {}) as Record<
-    string,
-    {isCorrect?: boolean}
-  >;
-  const authoritativeAnswered = Object.keys(allAnswers).length;
-  const authoritativeCorrect = Object.values(allAnswers).filter(
-    (a) => a.isCorrect === true,
-  ).length;
-
-  const attTx = await adminDb
-    .ref(`practiceAttempts/${uid}/${attemptId}`)
-    .transaction((att) => {
-      if (!att) return att;
-      att.answeredCount = authoritativeAnswered;
-      att.correctCount = authoritativeCorrect;
-      att.updatedAt = now;
-      return att;
-    });
-
-  return (attTx.snapshot.val() as Record<string, unknown>) || {};
 }
 
 /**

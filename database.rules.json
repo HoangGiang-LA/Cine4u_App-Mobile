@@ -2,6 +2,9 @@
   "rules": {
     ".read": false,
     ".write": false,
+    "learningWork": {
+      ".indexOn": ["dueAt"]
+    },
     "categories": {
       ".indexOn": ["status"],
       ".read": "auth != null && root.child('accountAccess').child(auth.uid).child('status').val() === 'active' && query.orderByChild === 'status' && query.equalTo === 'published'"

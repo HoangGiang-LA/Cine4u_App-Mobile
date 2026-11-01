@@ -43,6 +43,10 @@ Tên được đồng bộ từ Auth sang RTDB sau khi lưu; khi mở lại app 
 
 Đề mới chỉ nhận câu có kỹ năng, chủ đề và bài học được xuất bản, đúng quan hệ. Backend kiểm tra phiên bản, bốn lựa chọn, đáp án/giải thích, đoạn đọc và tài nguyên TTS. Phiên đã bắt đầu giữ snapshot nội dung dù danh mục hoặc phiên bản sau đó thay đổi.
 
+`dev:local` cũng chạy tác vụ nền cho luyện tập, bài kiểm tra và thử thách hôm nay. App lưu lựa chọn ngay khi bấm đáp án. Hết 30 giây, server chấm lựa chọn cuối đã nhận trước deadline dù chưa xác nhận; chưa chọn thì tính sai. Tác vụ nền chuyển câu, kết thúc phiên và khôi phục lưu kết quả/thưởng bị gián đoạn. App đang mở nhận trạng thái mới sau tối đa một lượt polling khoảng 3 giây.
+
+Daily chưa hoàn thành hết ngày bị đóng và không nhận thưởng theo múi giờ `Asia/Ho_Chi_Minh`. Daily đã hoàn thành trước nửa đêm vẫn được phục hồi lưu thưởng nếu server khởi động lại sau đó. Giữ máy tính và `dev:local` chạy để xử lý nền liên tục; khi máy tắt, tác vụ được xử lý bù ở lần khởi động sau. Xem [cách vận hành và kiểm thử tác vụ nền](../Backend/functions/README.md).
+
 ## Tài liệu bàn giao
 
 Xem [10 nhóm việc, hợp đồng API và các bước kiểm tra](docs/FRONTEND-HANDOFF.md).

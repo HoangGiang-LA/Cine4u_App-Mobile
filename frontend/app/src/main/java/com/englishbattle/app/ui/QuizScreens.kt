@@ -31,7 +31,8 @@ import kotlinx.coroutines.delay
 import java.util.Locale
 
 @Composable fun QuizScreen(state: LoadState<AttemptState>, busy: Boolean, error: String?, preferenceKey: String,
-    now: () -> Long, back: () -> Unit, submit: (String?) -> Unit, advance: () -> Unit, leave: () -> Unit, retry: () -> Unit, topicTitle: String = "") {
+    now: () -> Long, back: () -> Unit, submit: (String?) -> Unit, advance: () -> Unit, leave: () -> Unit, retry: () -> Unit, topicTitle: String = "",
+    saveSelection: (String) -> Unit = {}) {
     val a = state.data
     if (a == null) {
         Screen("Phiên làm bài", back) {
@@ -46,7 +47,7 @@ import java.util.Locale
         Screen(a.mode.title, back) { LoadingPanel("Đang cập nhật kết quả..."); Secondary("Tải lại trạng thái", onClick = retry) }
         return
     }
-    var selected by rememberSaveable(a.id, q.id) { mutableStateOf<String?>(null) }
+    var selected by rememberSaveable(a.id, q.id) { mutableStateOf(a.selectedOptionId) }
     var quit by rememberSaveable(a.id) { mutableStateOf(false) }
     var seconds by remember(a.deadlineAt) { mutableIntStateOf(remainingSeconds(a.deadlineAt, now())) }
     val owner = LocalLifecycleOwner.current
@@ -84,7 +85,9 @@ import java.util.Locale
             val color = if (confirmed && a.receipt?.correct == false) Rose else if (chosen) Lavender else Color.White
             Row(Modifier.fillMaxWidth().clip(RoundedCornerShape(16.dp)).background(color)
                 .border(1.dp, if (chosen) Purple else Line, RoundedCornerShape(16.dp))
-                .clickable(enabled = a.receipt == null && !busy && seconds > 0 && a.status == "active") { selected = option.id }
+                .clickable(enabled = a.receipt == null && !busy && seconds > 0 && a.status == "active") {
+                    selected = option.id; saveSelection(option.id)
+                }
                 .padding(16.dp), verticalAlignment = Alignment.CenterVertically, horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                 Text("${'A' + index}.", fontSize = 14.sp)
                 Text(option.text, Modifier.weight(1f), fontSize = 14.sp)

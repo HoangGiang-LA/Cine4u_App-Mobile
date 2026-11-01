@@ -156,6 +156,8 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
     private val gate = Mutex()
     private var operation: Job? = null
     private var poll: Job? = null
+    private var selectionJob: Job? = null
+    private var selectionVersion = 0
     private var lastStart: Pair<QuizMode, String?>? = null
     private var lastFind: Pair<String, String?>? = null
     private val _attempt = MutableStateFlow(LoadState<AttemptState>())
@@ -242,14 +244,33 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
         run { accept(container.game.resume(id)) }
     }
     fun submit(optionId: String?) = run {
+        selectionJob?.join()
         val a = _attempt.value.data ?: return@run
         val q = a.current ?: return@run
         if (a.receipt != null || a.status != "active") return@run
         accept(container.game.submit(a.id, q.id, optionId, "answer-${a.id}-${q.id}"))
     }
+    fun saveSelection(optionId: String) {
+        val a = _attempt.value.data ?: return
+        val q = a.current ?: return
+        if (a.mode == QuizMode.BATTLE || a.receipt != null || a.status != "active") return
+        val previous = selectionJob
+        val version = ++selectionVersion
+        selectionJob = scope.launch {
+            previous?.join()
+            if (version != selectionVersion) return@launch
+            try {
+                container.game.saveSelection(a.id, q.id, optionId, UUID.randomUUID().toString())
+                if (version == selectionVersion) _error.value = null
+            } catch (e: Exception) {
+                if (version == selectionVersion && _attempt.value.data?.current?.id == q.id)
+                    _error.value = "Chưa lưu được lựa chọn. Kiểm tra kết nối và thử lại."
+            }
+        }
+    }
     fun advance() = run {
         val a = _attempt.value.data ?: return@run
-        accept(container.game.advance(a.id, "advance-${a.id}-${a.index}"))
+        accept(container.game.advance(a.id, "advance-${a.id}-${a.index}", a.index))
     }
     fun leave() = run {
         val a = _attempt.value.data ?: return@run
@@ -312,8 +333,8 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
         poll?.cancel()
         if (!foreground) return
         val matching = _ticket.value.data?.status in listOf("searching", "waiting")
-        val battle = _attempt.value.data?.let { it.mode == QuizMode.BATTLE && it.status in listOf("active", "waiting") } == true
-        if (!matching && !battle) return
+        val playing = _attempt.value.data?.status in listOf("active", "waiting")
+        if (!matching && !playing) return
         poll = scope.launch {
             while (isActive) {
                 delay(3000)

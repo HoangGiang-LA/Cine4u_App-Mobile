@@ -2,6 +2,7 @@ import {HttpsError} from "firebase-functions/v2/https";
 import {adminDb} from "../../config/firebaseAdmin";
 import {getDateKey, WireQuestion} from "./attemptHelper";
 import {readAttemptResponse} from "./finalizeAttempt";
+import {enqueueLearningWork} from "./learningWork";
 
 /**
  * The UID/date slot elects one attempt. Questions and attempt records are
@@ -162,5 +163,6 @@ export async function startDailyAttempt(
           updatedAt: openedAt,
         },
     );
+  await enqueueLearningWork(uid, attemptId, deadlineAt);
   return readAttemptResponse(uid, attemptId, attemptTx.snapshot.val());
 }

@@ -3,6 +3,7 @@ import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {WireQuestion, getDateKey, normalizeMode} from "./attemptHelper";
 import {readAttemptResponse as buildAttemptResponse} from "./finalizeAttempt";
 import {startDailyAttempt} from "./startDailyAttempt";
+import {initialLearningWork, learningWorkKey} from "./learningWork";
 import {
   contentId,
   playableQuestion,
@@ -532,6 +533,8 @@ export const startAttempt = onCall(
       const updates: Record<string, unknown> = {};
       updates[`practiceAttempts/${uid}/${attemptId}`] = attemptRecord;
       updates[`attemptQuestions/${uid}/${attemptId}`] = questionsRecord;
+      updates[`learningWork/${learningWorkKey(uid, attemptId)}`] =
+        initialLearningWork(uid, attemptId, deadlineAt);
       updates[opKey] = {
         status: "completed",
         workerToken,

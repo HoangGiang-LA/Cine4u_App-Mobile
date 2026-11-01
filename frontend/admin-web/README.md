@@ -11,7 +11,7 @@ cd "D:\visual studio\EnglishBattle-full\frontend\admin-web"
 npm.cmd run dev:local
 ```
 
-Lệnh này build Functions rồi chạy Functions Emulator tại `127.0.0.1:5001`, server xác nhận quyền tại `127.0.0.1:8080` và web tại **http://127.0.0.1:5173/**. Giữ terminal mở; nhấn `Ctrl+C` để dừng cả ba dịch vụ. Nếu cổng đang bận, dừng dịch vụ cũ trước khi chạy lại.
+Lệnh này build Functions rồi chạy Functions Emulator tại `127.0.0.1:5001`, tác vụ nền học tập, server xác nhận quyền tại `127.0.0.1:8080` và web tại **http://127.0.0.1:5173/**. Giữ terminal mở; nhấn `Ctrl+C` để dừng các dịch vụ. Nếu cổng đang bận, dừng dịch vụ cũ trước khi chạy lại.
 
 Firebase Authentication và Realtime Database vẫn dùng tài khoản/dữ liệu thật của project hiện tại. `ensureUserProfile` chạy trên máy và có thể khởi tạo các bản ghi còn thiếu trong database thật. Đăng nhập bằng tài khoản đã có claim `admin: true`; quyền vẫn được kiểm tra bởi server. Các trang nghiệp vụ vẫn dùng dữ liệu mẫu. Chế độ này cần Internet cho Auth/Database, không yêu cầu deploy Functions hoặc nâng cấp Blaze.
 

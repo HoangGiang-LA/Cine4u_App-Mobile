@@ -19,7 +19,8 @@ interface GameRepository {
     suspend fun start(mode: QuizMode, topicId: String?, requestId: String): AttemptState
     suspend fun resume(attemptId: String): AttemptState
     suspend fun submit(attemptId: String, questionId: String, optionId: String?, requestId: String): AttemptState
-    suspend fun advance(attemptId: String, requestId: String): AttemptState
+    suspend fun saveSelection(attemptId: String, questionId: String, optionId: String, requestId: String)
+    suspend fun advance(attemptId: String, requestId: String, expectedIndex: Int? = null): AttemptState
     suspend fun leave(attemptId: String, requestId: String): AttemptState
     suspend fun findMatch(kind: String, code: String?, requestId: String): MatchTicket
     suspend fun matchStatus(ticketId: String): MatchTicket

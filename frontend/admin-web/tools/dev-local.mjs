@@ -136,6 +136,9 @@ async function main() {
     body: JSON.stringify({data: {}}),
   })
   if (stopping) return
+  start('Learning worker', ['--watch', resolve(functionsDir, 'tools/learning-worker.mjs')], functionsDir, {
+    ...env, LEARNING_WORKER_LOCAL: 'true',
+  })
   start('Admin server', ['src/index.mjs'], serverDir, env)
   await waitFor('http://127.0.0.1:8080/health', 200)
   if (stopping) return
@@ -147,7 +150,7 @@ async function main() {
   await waitFor('http://127.0.0.1:5173/', 200)
   if (!stopping) {
     console.log('\nMo web admin: http://127.0.0.1:5173/ (dung tai khoan Firebase admin hien co).')
-    console.log('Giu terminal nay mo. Nhan Ctrl+C de dung ca ba dich vu.\n')
+    console.log('Giu terminal nay mo. Nhan Ctrl+C de dung cac dich vu va tac vu nen.\n')
   }
 }
 

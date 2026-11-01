@@ -45,7 +45,8 @@ object WireCodec {
                 if (it.isNull("correct") || !it.has("correct")) null else it.getBoolean("correct")) },
             o.optString("status", "active"), o.optString("opponentName"),
             o.optJSONObject("result")?.let(::result),
-            if (o.has("reconnectDeadlineAt") && !o.isNull("reconnectDeadlineAt")) o.getLong("reconnectDeadlineAt") else null)
+            if (o.has("reconnectDeadlineAt") && !o.isNull("reconnectDeadlineAt")) o.getLong("reconnectDeadlineAt") else null,
+            o.nullableString("selectedOptionId"))
         require(a.id.isNotBlank() && (a.result != null || a.status != "active" || a.index in a.questions.indices))
         require(a.questions.map { it.id }.distinct().size == a.questions.size)
         return a
@@ -56,6 +57,7 @@ object WireCodec {
             .put("optionId", it.optionId ?: JSONObject.NULL).put("correct", it.correct ?: JSONObject.NULL) }))
         .put("status", a.status).put("opponentName", a.opponentName).put("result", a.result?.let(::resultJson) ?: JSONObject.NULL)
         .put("reconnectDeadlineAt", a.reconnectDeadlineAt ?: JSONObject.NULL)
+        .put("selectedOptionId", a.selectedOptionId ?: JSONObject.NULL)
     fun dashboard(o: JSONObject) = Dashboard(o.getInt("rating"), o.getInt("coins"), o.optInt("wins"),
         o.optInt("losses"), o.optInt("draws"), o.optInt("streak"), o.stringMap("progress"),
         o.optJSONObject("daily")?.let { DailyStatus(it.optString("status", "available"), it.nullableString("attemptId")) } ?: DailyStatus(),

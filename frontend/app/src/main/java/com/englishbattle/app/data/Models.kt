@@ -36,7 +36,7 @@ data class AttemptState(val id: String, val mode: QuizMode, val topicId: String,
     val questions: List<QuizQuestion>, val index: Int, val deadlineAt: Long,
     val receipts: List<AnswerReceipt> = emptyList(), val status: String = "active",
     val opponentName: String = "", val result: QuizResult? = null,
-    val reconnectDeadlineAt: Long? = null) {
+    val reconnectDeadlineAt: Long? = null, val selectedOptionId: String? = null) {
     val current get() = questions.getOrNull(index)
     val receipt get() = current?.let { q -> receipts.find { it.questionId == q.id } }
 }

@@ -156,7 +156,7 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
                 Route.Test -> AttemptIntroScreen(QuizMode.TEST, null, dashboard, busy, ::back, dataVM::refresh, { start(QuizMode.TEST) }, { resume(it) })
                 Route.Challenge -> AttemptIntroScreen(QuizMode.DAILY, null, dashboard, busy, ::back, dataVM::refresh, { start(QuizMode.DAILY) }, { resume(it) })
                 Route.Quiz, Route.BattleQuiz -> QuizScreen(attempt, busy, playError, preferenceKey, play::now, ::back, play::submit, play::advance, play::leave, { play.resume() },
-                    catalog.data?.topics?.find { it.id == attempt.data?.current?.topicId }?.title.orEmpty())
+                    catalog.data?.topics?.find { it.id == attempt.data?.current?.topicId }?.title.orEmpty(), play::saveSelection)
                 Route.PracticeResult, Route.BattleResult -> ResultScreen(result, { root(Route.Home) }, { go(Route.Review) }, {
                     if (result.data?.mode == QuizMode.BATTLE) { root(Route.Battle); find("quick") } else root(Route.Practice)
                 }, dashboard.data?.skills.orEmpty())

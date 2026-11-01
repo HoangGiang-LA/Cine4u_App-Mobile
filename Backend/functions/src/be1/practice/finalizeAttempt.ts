@@ -1,6 +1,11 @@
 import {HttpsError} from "firebase-functions/v2/https";
 import {adminDb} from "../../config/firebaseAdmin";
 import {
+  initializeAttemptAnswers, projectAttemptState, StoredAnswer, StoredAttempt,
+  updateAttemptCounts,
+} from "./attemptState";
+import {enqueueLearningWork, learningWorkKey} from "./learningWork";
+import {
   buildAttemptResponse,
   dailyEndsAt,
   getDateKey,
@@ -55,7 +60,8 @@ export async function finalizeAttemptLogic(
   const now = Date.now();
   const grantId = `grant_${attemptId}`;
   const modeRaw = normalizeMode(attemptData.mode || "practice");
-  if (isDailyExpired(attemptData, now)) outcome = "abandoned";
+  // Expiry must be decided inside the attempt transaction. This snapshot can
+  // be stale when the final answer commits just before midnight.
   if (
     modeRaw === "DAILY" &&
     attemptData.status !== "completed" &&
@@ -78,59 +84,39 @@ export async function finalizeAttemptLogic(
     if (slotTx.snapshot.val()?.attemptId !== attemptId) outcome = "abandoned";
   }
 
-  // Step 1: Read authoritative answers and validate before settlement
+  // Legacy answers are imported once into the attempt transaction boundary.
   const aSnap = await adminDb.ref(`attemptAnswers/${uid}/${attemptId}`).get();
-  const allAnswers = (aSnap.val() || {}) as Record<
-    string,
-    {
-      questionId?: string;
-      selectedOptionId?: string | null;
-      isCorrect?: boolean;
-      timedOut?: boolean;
-    }
-  >;
-  const totalQuestions = (attemptData.questionCount as number) || 10;
-  let answeredCount = Object.keys(allAnswers).length;
-  let correctCount = Object.values(allAnswers).filter(
-    (a) => a.isCorrect === true,
-  ).length;
-
-  if (
-    outcome === "completed" &&
-    attemptData.status !== "completed" &&
-    attemptData.status !== "abandoned" &&
-    answeredCount < totalQuestions
-  ) {
-    throw new HttpsError(
-      "failed-precondition",
-      "Cannot finalize attempt: not all questions are resolved.",
-    );
-  }
+  const legacyAnswers = (aSnap.val() || {}) as Record<string, StoredAnswer>;
+  await enqueueLearningWork(uid, attemptId, now);
 
   // Atomic final-outcome decision on practiceAttempts
   // Prevents concurrent conflict between completed and abandoned calls
   // Keep speculative transaction values out of parallel result reads.
-  const txOutcome = await attemptRef.transaction((att) => {
-    if (!att) return att;
-    // Already in a terminal state: keep immutable
-    if (att.status === "completed" || att.status === "abandoned") {
-      return att;
-    }
-    const expired = isDailyExpired(att);
-    if (outcome === "completed" && !expired) {
-      if (att.status !== "waiting") {
-        return; // Aborts transaction if not ready
+  const txOutcome = await attemptRef.transaction(
+    (att: StoredAttempt | null) => {
+      if (!att) return att;
+      const answers = initializeAttemptAnswers(att, legacyAnswers);
+      // Already in a terminal state: keep immutable
+      if (att.status === "completed" || att.status === "abandoned") {
+        return att;
       }
-      att.status = "completed";
-    } else {
-      att.status = "abandoned";
-    }
-    att.finishedAt = expired ? dailyEndsAt(att) : att.finishedAt || now;
-    att.correctCount = correctCount;
-    att.answeredCount = answeredCount;
-    att.updatedAt = now;
-    return att;
-  }, undefined, false);
+      const expired = isDailyExpired(att);
+      if (outcome === "completed" && !expired) {
+        if (att.status !== "waiting") {
+          return; // Aborts transaction if not ready
+        }
+        if (Object.keys(answers).length < att.questionCount) {
+          throw new HttpsError("failed-precondition", "Questions unresolved.");
+        }
+        att.status = "completed";
+      } else {
+        att.status = "abandoned";
+      }
+      att.finishedAt = expired ? dailyEndsAt(att) : att.finishedAt || now;
+      updateAttemptCounts(att);
+      att.updatedAt = now;
+      return att;
+    }, undefined, false);
 
   if (!txOutcome.committed) {
     throw new HttpsError(
@@ -139,10 +125,12 @@ export async function finalizeAttemptLogic(
     );
   }
 
-  const committedAttempt = txOutcome.snapshot.val() as Record<string, unknown>;
+  const committedAttempt = txOutcome.snapshot.val() as StoredAttempt;
   const finalOutcome = committedAttempt.status as "completed" | "abandoned";
-  correctCount = Number(committedAttempt.correctCount) || 0;
-  answeredCount = Number(committedAttempt.answeredCount) || 0;
+  const correctCount = Number(committedAttempt.correctCount) || 0;
+  const answeredCount = Number(committedAttempt.answeredCount) || 0;
+  const allAnswers = committedAttempt.answers || {};
+  await projectAttemptState(uid, attemptId, committedAttempt);
 
   // Step 2: Read wallet, progress and legacy grants before initialization.
   const [walletSnap, progSnap, rewardGrantsSnap] = await Promise.all([
@@ -280,7 +268,7 @@ export async function finalizeAttemptLogic(
         coinBalance: finalSettlement.coinBalance,
         appliedGrants: {
           ...Object.fromEntries(
-            Object.keys(baselineGrants).map((k) => [k, true]),
+            Object.keys(finalSettlement.grants).map((k) => [k, true]),
           ),
           [grantId]: true,
         },
@@ -448,6 +436,13 @@ export async function finalizeAttemptLogic(
   };
 
   const response = await buildAttemptResponse(uid, attemptId, finalAttemptData);
+  // This marker and queue removal are atomic and come after every projection,
+  // including reviews. A crash at any earlier step leaves durable retry work.
+  await adminDb.ref().update({
+    [`practiceAttempts/${uid}/${attemptId}/settlementVersion`]: 1,
+    [`practiceAttempts/${uid}/${attemptId}/settlementCompletedAt`]: Date.now(),
+    [`learningWork/${learningWorkKey(uid, attemptId)}`]: null,
+  });
   return {
     serverNow: response.serverNow,
     attempt: response.attempt,
@@ -474,7 +469,7 @@ export async function readAttemptResponse(
     const finalized = await finalizeAttemptLogic(
       uid,
       attemptId,
-      attempt.status === "completed" ? "completed" : "abandoned",
+      attempt.status === "abandoned" ? "abandoned" : "completed",
     );
     return {serverNow: finalized.serverNow, attempt: finalized.attempt};
   }
