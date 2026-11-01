@@ -2,7 +2,8 @@ import assert from "node:assert/strict";
 import {readFileSync} from "node:fs";
 import {createRequire} from "node:module";
 import {randomUUID} from "node:crypto";
-import {test} from "node:test";
+import {test as nodeTest} from "node:test";
+const test = (name, run) => nodeTest(name, {timeout: 30000}, run);
 
 assert.equal(process.env.FIREBASE_AUTH_EMULATOR_HOST, "127.0.0.1:9199");
 assert.equal(process.env.FIREBASE_DATABASE_EMULATOR_HOST, "127.0.0.1:9100");
@@ -13,6 +14,7 @@ const {startAttempt} = require("./lib/be1/practice/startAttempt.js");
 const {getAttemptResult} = require("./lib/be1/practice/getAttemptResult.js");
 const {leaveAttempt} = require("./lib/be1/practice/leaveAttempt.js");
 const {getUserDashboard} = require("./lib/be1/user/getUserDashboard.js");
+const {finalizeAttemptLogic} = require("./lib/be1/practice/finalizeAttempt.js");
 const {adminAuth, adminDb} = require("./lib/config/firebaseAdmin.js");
 const {deleteApp} = require("firebase-admin/app");
 assert.match(adminDb.ref().toString(), /^http:\/\/127\.0\.0\.1:9100\//);
@@ -125,6 +127,20 @@ try {
     responses.forEach(response => assert.deepEqual(response.result, responses[0].result));
     await assertTotals(uid, 1, 1, 10);
     assert.equal(await read(`userAchievements/${uid}`), null);
+  });
+
+  await test("Rejected completion does not prevent a later valid leave from finalizing", async () => {
+    const uid = await newUser();
+    const {attempt} = await invoke(startAttempt, uid, {
+      mode: "PRACTICE", topicId, requestId: randomUUID(),
+    });
+    await assert.rejects(finalizeAttemptLogic(uid, attempt.id), {code: "failed-precondition"});
+    const left = await invoke(leaveAttempt, uid, {attemptId: attempt.id, requestId: randomUUID()});
+    assert.equal(left.attempt.status, "abandoned");
+    assert.equal(left.attempt.result.coins, 0);
+    const replay = await finish(uid, attempt);
+    assert.equal(replay.result.outcome, "abandoned");
+    assert.equal(await read(`wallets/${uid}/coinBalance`), 0);
   });
 
   await test("Three concurrent completions: delayed progress 19 cannot overwrite 21 or the latest timestamp", async () => {

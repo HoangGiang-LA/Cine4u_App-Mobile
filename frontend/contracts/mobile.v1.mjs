@@ -25,7 +25,8 @@ const ticket = object({id: str, status: {enum: ['searching', 'waiting', 'matched
 const dashboard = object({rating: int, coins: int, wins: int, losses: int, draws: int, streak: int,
   progress: {type: 'object', additionalProperties: int},
   daily: object({status: {enum: ['available', 'active', 'waiting', 'completed', 'abandoned']}, attemptId: nullableId}, ['status']),
-  history: list(result, 50), achievements: list(object({id: str, title: str, description: text, unlocked: {type: 'boolean'}})),
+  history: list(result, 50), achievements: list(object({id: str, title: str, description: text, unlocked: {type: 'boolean'},
+    progress: int, threshold: {...int, minimum: 1}}, ['id', 'title', 'description', 'unlocked'])),
   notifications: list(object({id: str, title: str, body: text, destination: {enum: ['Achievements', 'Challenge', 'Practice', 'Battle', 'Leaderboard', 'History', 'Wallet']}, read: {type: 'boolean'}, createdAt: int}), 50),
   ledger: list(object({id: str, label: str, delta: {type: 'integer'}, createdAt: int}), 50),
   skills: list(object({id: str, name: str, answered: int, correct: int}))});

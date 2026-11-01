@@ -1,5 +1,6 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
+import {refreshBattleAchievements} from "../battle/battleAchievements";
 
 const getDateKey = (): string => {
   const parts = new Intl.DateTimeFormat("en-CA", {
@@ -122,6 +123,8 @@ export const getUserDashboard = onCall(
       const stats = statsSnap.val();
       const wallet = walletSnap.val();
       const daily = dailySnap.val();
+      const refreshed = await refreshBattleAchievements(uid,
+        achievementsSnap.val(), userAchievementsSnap.val());
 
       let dailyStatus: DailyStatus = "available";
 
@@ -197,7 +200,7 @@ export const getUserDashboard = onCall(
   achievementsSnap.val() ?? {};
 
       const userAchievementData =
-  userAchievementsSnap.val() ?? {};
+  refreshed?.achievements ?? userAchievementsSnap.val() ?? {};
 
       const achievements = Object.entries(
         achievementDefinitions
@@ -224,13 +227,28 @@ export const getUserDashboard = onCall(
     Number.isSafeInteger(userRecord.unlockedAt) &&
     userRecord.unlockedAt > 0;
 
+        const threshold = nonNegativeInt(definition.threshold) || 1;
+        const progressValue = definition.conditionType ===
+          "practice_completion_count" ?
+          progress[String(definition.targetId)] || 0 :
+          nonNegativeInt(userRecord?.progress);
+        const description = typeof definition.description === "string" ?
+          definition.description :
+          definition.conditionType === "battle_wins" ?
+            `Thắng ${threshold} trận đấu.` :
+            definition.conditionType === "battle_win_streak" ?
+              `Thắng ${threshold} trận liên tiếp.` :
+              definition.conditionType === "settled_battle_count" ?
+                `Hoàn tất ${threshold} trận đấu.` : "";
+
         return [{
           id: achievementId,
           title: typeof definition.title === "string" ?
             definition.title : achievementId,
-          description: typeof definition.description === "string" ?
-            definition.description : "",
+          description,
           unlocked,
+          progress: progressValue,
+          threshold,
         }];
       });
 
@@ -244,7 +262,8 @@ export const getUserDashboard = onCall(
         "Wallet",
       ] as const;
 
-      const notificationsData = notificationsSnap.val() ?? {};
+      const notificationsData = refreshed?.notifications ??
+        notificationsSnap.val() ?? {};
 
       const notifications = Object.entries(notificationsData)
         .flatMap(([notificationId, value]) => {

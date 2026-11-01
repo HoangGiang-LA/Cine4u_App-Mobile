@@ -40,7 +40,8 @@ data class AttemptState(val id: String, val mode: QuizMode, val topicId: String,
     val current get() = questions.getOrNull(index)
     val receipt get() = current?.let { q -> receipts.find { it.questionId == q.id } }
 }
-data class Achievement(val id: String, val title: String, val description: String, val unlocked: Boolean)
+data class Achievement(val id: String, val title: String, val description: String, val unlocked: Boolean,
+    val progress: Int = 0, val threshold: Int = GameRules.PRACTICE_TARGET)
 data class AppNotification(val id: String, val title: String, val body: String, val destination: String, val read: Boolean, val createdAt: Long)
 data class LedgerEntry(val id: String, val label: String, val delta: Int, val createdAt: Long)
 data class SkillStat(val id: String, val name: String, val answered: Int, val correct: Int)

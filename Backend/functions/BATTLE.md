@@ -60,6 +60,38 @@ Sau khi cả hai UID đã ghi xong, một update nguyên tử lưu hai bộ kế
 marker settlement; rồi mới giải phóng reservation. Gián đoạn giữa chừng được
 retry; replay kết quả cũ không giải phóng reservation của trận mới.
 
+## Rating, thống kê và thành tích thi đấu
+
+Thống kê được chiếu từ tổng chuẩn trong `userSettlements`, kèm thứ tự theo số
+trận đã chốt. Projection cũ đến muộn không ghi đè rating, số trận hoặc chuỗi
+thắng mới hơn. Chuỗi thắng hiện tại về 0 khi thua, rời hoặc hòa; chuỗi tốt nhất
+được giữ để không thu hồi thành tích đã đạt. Thưởng xu/rating theo trận giữ
+nguyên; thành tích không tạo thêm xu, kể cả khi định nghĩa có `rewardCoins`.
+
+Định nghĩa `published` trong `achievements` hỗ trợ `battle_wins` (1/10/50),
+`battle_win_streak` (3) và `settled_battle_count` (20), với threshold nguyên
+dương và ruleVersion. Quyết định mở khóa và progress nằm trong cùng transaction
+với grant, giữ mốc mở khóa đầu tiên. Bản sao tại `userAchievements` và thông báo
+`battle_achievement_<hash>` có thể retry. Thông báo chỉ tạo một lần, giữ readAt.
+
+`battleEffectsVersion: 1` chỉ ghi khi cả hai người có đủ projection. Dashboard
+phục hồi từ grant bước 4 và kiểm tra thành tích mới xuất bản, không cần chơi
+trận mới. Revision quyết định/projection được lưu trong `userSettlements`;
+forced job được ghi trước khi cập nhật để lỗi thông báo vẫn được worker phục
+hồi. Dọn job so sánh cả generation/revision, giữ yêu cầu refresh đến đồng thời.
+
+Thành tích còn khóa đổi conditionType thì tính lại progress từ bộ đếm tương
+ứng, không giữ số đếm của điều kiện cũ. Projection mang battleProjectionRevision
+để dữ liệu đến muộn không khôi phục progress/ruleVersion cũ. Thành tích đã mở
+giữ điều kiện và quyết định mở khóa đầu tiên.
+Thành tích còn khóa luôn lấy progress từ bộ đếm chuẩn, nên dữ liệu progress
+đã bị ghi cao sai trước đó cũng được sửa khi tải lại dashboard.
+
+Dashboard trả thêm progress/threshold tùy chọn cho từng thành tích; app dùng
+đúng mục tiêu của mỗi huy hiệu. `markNotificationsRead` nhận tối đa 50 ID,
+kiểm tra Auth/access, chỉ cập nhật thông báo đúng UID, không tạo ID chưa có và
+không đặt lại thời điểm đọc khi gửi lại. Không thêm quyền client ghi database.
+
 Transaction trên trạng thái phiên và enqueue công việc thử lại tối đa 8 lần
 khi chính SDK hủy với `Error("set")` do một projection đồng thời ghi vào cùng
 nhánh. Lỗi quyền truy cập/kết nối khác được giữ nguyên. Callback tiếp tục đọc

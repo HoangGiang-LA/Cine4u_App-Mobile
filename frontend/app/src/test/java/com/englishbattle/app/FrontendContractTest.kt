@@ -49,4 +49,16 @@ class FrontendContractTest {
         val result = QuizResult("a", QuizMode.DAILY, 0, 5, 2, reviews = listOf(QuestionReview(q, null, "a", "Explanation")))
         assertNull(WireCodec.result(WireCodec.resultJson(result)).reviews.single().pickedId)
     }
+    @Test fun battleAchievementUsesServerProgressAndThreshold() {
+        val dashboard = WireCodec.dashboard(JSONObject("""{"rating":5,"coins":5,"achievements":[
+            {"id":"ten_wins","title":"Ten wins","description":"Win ten battles","unlocked":false,"progress":7,"threshold":10}]}"""))
+        assertEquals(7, dashboard.achievements.single().progress)
+        assertEquals(10, dashboard.achievements.single().threshold)
+    }
+    @Test fun legacyPracticeAchievementStillReadsExistingTopicProgress() {
+        val dashboard = WireCodec.dashboard(JSONObject("""{"rating":0,"coins":0,"progress":{"grammar_tenses":9},"achievements":[
+            {"id":"practice_20_grammar_tenses","title":"Practice","description":"Complete twenty","unlocked":false}]}"""))
+        assertEquals(9, dashboard.achievements.single().progress)
+        assertEquals(20, dashboard.achievements.single().threshold)
+    }
 }

@@ -5,6 +5,11 @@ import {GrantRecord, UserSettlementModel} from "../practice/finalizeAttempt";
 import {BattleMatch, BattleOutcome} from "./battleTypes";
 import {enqueueBattleWork} from "./battleWork";
 import {releaseBattle} from "./matchmaking";
+import {transactionWithRetry} from "../databaseTransaction";
+import {
+  applyBattleAchievements, battleAchievementDefinitions,
+  projectBattleAchievements,
+} from "./battleAchievements";
 
 const nonnegative = (value: unknown) =>
   typeof value === "number" && Number.isSafeInteger(value) && value >= 0 ?
@@ -17,18 +22,24 @@ const statsBaseline = (stats: Record<string, unknown>) => ({
   draws: nonnegative(stats.draws),
   matchesPlayed: nonnegative(stats.matchesPlayed),
   winStreak: nonnegative(stats.winStreak ?? stats.currentWinStreak),
-  bestWinStreak: nonnegative(stats.bestWinStreak),
+  bestWinStreak: Math.max(nonnegative(stats.bestWinStreak),
+    nonnegative(stats.winStreak ?? stats.currentWinStreak)),
 });
 
 const settlePlayer = async (match: BattleMatch, uid: string) => {
   const finish = match.finish!;
   const grantId = `grant_${match.id}`;
-  const [wallet, progress, grants, stats] = await Promise.all([
-    adminDb.ref(`wallets/${uid}`).get(),
-    adminDb.ref(`learningProgress/${uid}`).get(),
-    adminDb.ref(`rewardGrants/${uid}`).get(),
-    adminDb.ref(`userStats/${uid}`).get(),
-  ]);
+  const [wallet, progress, grants, stats, definitions, legacy] =
+    await Promise.all([
+      adminDb.ref(`wallets/${uid}`).get(),
+      adminDb.ref(`learningProgress/${uid}`).get(),
+      adminDb.ref(`rewardGrants/${uid}`).get(),
+      adminDb.ref(`userStats/${uid}`).get(),
+      adminDb.ref("achievements").get(),
+      adminDb.ref(`userAchievements/${uid}`).get(),
+    ]);
+  const achievementDefinitions =
+    battleAchievementDefinitions(definitions.val());
   const baselineGrants: Record<string, GrantRecord> = {};
   for (const [id, value] of Object.entries(grants.val() || {})) {
     const g = value as Record<string, unknown>;
@@ -59,9 +70,15 @@ const settlePlayer = async (match: BattleMatch, uid: string) => {
         initializedAt: Date.now(),
       };
       s.grants ||= {};
-      if (s.grants[grantId]?.sourceType === "battle") return s;
       s.rating ??= nonnegative(stats.val()?.rating);
       s.battleStats ||= {...baselineStats};
+      s.battleStats.bestWinStreak = Math.max(s.battleStats.bestWinStreak,
+        s.battleStats.winStreak);
+      if (s.grants[grantId]?.sourceType === "battle") {
+        applyBattleAchievements(s, achievementDefinitions, legacy.val(),
+          match.id, finish.at);
+        return s;
+      }
       const outcome = finish.outcomes[uid];
       const before = s.rating;
       const after =
@@ -98,6 +115,8 @@ const settlePlayer = async (match: BattleMatch, uid: string) => {
         else s.battleStats.losses++;
         s.battleStats.winStreak = 0;
       }
+      applyBattleAchievements(s, achievementDefinitions, legacy.val(),
+        match.id, finish.at);
       return s;
     },
     undefined,
@@ -131,35 +150,20 @@ const settlePlayer = async (match: BattleMatch, uid: string) => {
   );
   await adminDb.ref(`userStats/${uid}`).transaction(
     (s) => {
-      if (!s) {
-        return {
-          ...settlement.battleStats,
-          rating: settlement.rating,
-          currentWinStreak: settlement.battleStats!.winStreak,
-          appliedGrants: Object.fromEntries(
-            Object.entries(settlement.grants)
-              .filter(([, g]) => g.sourceType === "battle")
-              .map(([id]) => [id, true]),
-          ),
-          updatedAt: Date.now(),
-        };
-      }
-      s.appliedGrants ||= {};
-      if (s.appliedGrants[grantId]) return s;
-      s.rating = Math.max(0, nonnegative(s.rating) + grant.ratingDelta!);
-      s.matchesPlayed = nonnegative(s.matchesPlayed) + 1;
-      const win = grant.outcome === "win";
-      const draw = grant.outcome === "draw";
-      const counter = win ? "wins" : draw ? "draws" : "losses";
-      s[counter] = nonnegative(s[counter]) + 1;
-      s.winStreak = win ?
-        nonnegative(s.winStreak ?? s.currentWinStreak) + 1 :
-        0;
-      s.currentWinStreak = s.winStreak;
-      s.bestWinStreak = Math.max(nonnegative(s.bestWinStreak), s.winStreak);
-      s.appliedGrants[grantId] = true;
-      s.updatedAt = Date.now();
-      return s;
+      const snapshot = settlement.battleStats!;
+      if (nonnegative(s?.battleStatsSequence) > snapshot.matchesPlayed) return;
+      return {
+        ...s, ...snapshot, rating: settlement.rating,
+        currentWinStreak: snapshot.winStreak,
+        battleStatsSequence: snapshot.matchesPlayed,
+        appliedGrants: {
+          ...s?.appliedGrants,
+          ...Object.fromEntries(Object.entries(settlement.grants)
+            .filter(([, g]) => g.sourceType === "battle")
+            .map(([id]) => [id, true])),
+        },
+        updatedAt: Date.now(),
+      };
     },
     undefined,
     false,
@@ -215,6 +219,7 @@ const settlePlayer = async (match: BattleMatch, uid: string) => {
       false,
     );
   }
+  await projectBattleAchievements(uid, settlement);
   const opponent = Object.keys(match.players).find((id) => id !== uid)!;
   const result: WireResult = {
     attemptId: match.id,
@@ -240,20 +245,25 @@ const settlePlayer = async (match: BattleMatch, uid: string) => {
 /**
  * Project both frozen outcomes; interruption leaves a durable retry job.
  * @param {string} matchId Completed match identifier.
+ * @param {boolean} refreshEffects Reconcile new or interrupted badge effects.
  * @return {Promise<void>} Durable settlement and reservation release.
  */
-export async function settleBattle(matchId: string): Promise<void> {
+export async function settleBattle(
+  matchId: string,
+  refreshEffects = false,
+): Promise<void> {
   const match = (
     await adminDb.ref(`battleRooms/${matchId}`).get()
   ).val() as BattleMatch | null;
   if (!match || match.status !== "completed" || !match.finish) {
     throw new HttpsError("failed-precondition", "Battle is not complete.");
   }
-  if (match.settlementVersion === 1) {
+  if (match.settlementVersion === 1 && match.battleEffectsVersion === 1 &&
+      !refreshEffects) {
     await releaseBattle(match);
     return;
   }
-  await enqueueBattleWork(matchId, Date.now());
+  const wake = await enqueueBattleWork(matchId, Date.now());
   const updates: Record<string, unknown> = {};
   const playerResults: Record<string, unknown> = {};
   for (const uid of Object.keys(match.players)) {
@@ -281,9 +291,16 @@ export async function settleBattle(matchId: string): Promise<void> {
   };
   updates[`battleLogs/${matchId}`] = match.events || {};
   updates[`battleRooms/${matchId}/settlementVersion`] = 1;
+  updates[`battleRooms/${matchId}/battleEffectsVersion`] = 1;
   updates[`battleRooms/${matchId}/settlementCompletedAt`] = Date.now();
-  updates[`battleWork/${matchId}`] = null;
   await adminDb.ref().update(updates);
+  await transactionWithRetry(adminDb.ref(`battleWork/${matchId}`), (job) => {
+    if (!job) return job;
+    if (job.generation === wake.generation && job.revision === wake.revision) {
+      return null;
+    }
+    return;
+  });
   await releaseBattle(match);
 }
 

@@ -55,6 +55,7 @@ export interface BattleMatch {
   finish?: BattleFinish;
   events?: Record<string, {type: string; at: number; uid?: string}>;
   settlementVersion?: number;
+  battleEffectsVersion?: number;
 }
 export interface BattleTicket {
   id: string;

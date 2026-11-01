@@ -10,6 +10,7 @@ const require = createRequire(new URL('../../../../functions/package.json', impo
 const {adminDb} = require('./lib/config/firebaseAdmin.js');
 assert.match(adminDb.ref().toString(), /^http:\/\/127\.0\.0\.1:9100\//);
 const callables = require('./lib/be1/battle/battleCallables.js');
+callables.markNotificationsRead = require('./lib/be1/user/markNotificationsRead.js').markNotificationsRead;
 for (const method of ['resumeAttempt', 'submitAttemptAnswer', 'saveAttemptSelection', 'leaveAttempt', 'getAttemptResult']) {
   callables[method] = require(`./lib/be1/practice/${method}.js`)[method];
 }
@@ -26,7 +27,8 @@ process.on('message', command => {
         const fn = callables[command.method];
         assert.equal(typeof fn?.run, 'function');
         value = await fn.run({auth: {uid: command.user.uid},
-          data: {...command.data, clientSessionId: command.user.sid}});
+          data: {...command.data, ...(command.method === 'markNotificationsRead' ? {} :
+            {clientSessionId: command.user.sid})}});
       }
       process.send({id: command.id, value});
     } catch (error) {

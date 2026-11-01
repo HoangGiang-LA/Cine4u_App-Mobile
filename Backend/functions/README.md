@@ -36,6 +36,10 @@ TypeScript, build lại Functions; worker tự khởi động lại khi output t
 - `userSettlements` quyết định thưởng một lần. Ví, ledger, tiến độ, kỹ năng,
   thành tích, daily và review đều có thể chạy lại an toàn. Chỉ đặt
   `settlementVersion: 1` sau khi tất cả bản sao đã ghi thành công.
+- Yêu cầu hoàn tất cùng phiên dùng chung xử lý khi trùng outcome trong một
+  tiến trình; outcome khác được xếp sau lượt đang chạy. Tránh các projection
+  local hủy transaction SDK của nhau. Quyết định giữa nhiều tiến trình vẫn do
+  transaction canonical giữ; xử lý lỗi được giải phóng để lần retry tiếp tục.
 
 ## Hàng đợi và phục hồi
 
@@ -72,7 +76,7 @@ Từ thư mục gốc, dùng JDK 21 rồi chạy:
 ```powershell
 npm.cmd --prefix Backend/functions run lint
 node Backend/functions/node_modules/typescript/bin/tsc --project Backend/functions/tsconfig.json
-node frontend/verification/node_modules/firebase-tools/lib/bin/firebase.js emulators:exec --only "auth,database" --project demo-englishbattle-finalization --config firebase.finalization-qa.json --non-interactive "node --test --test-concurrency=1 Backend/tests/be1/battle/battle.test.mjs Backend/tests/be1/practice/learningMaintenance.test.mjs Backend/tests/be1/practice/attemptCompletion.test.mjs Backend/tests/be1/practice/progressAchievements.test.mjs Backend/tests/be1/profileContent.test.mjs"
+node frontend/verification/node_modules/firebase-tools/lib/bin/firebase.js emulators:exec --only "auth,database" --project demo-englishbattle-finalization --config firebase.finalization-qa.json --non-interactive "node --test --test-concurrency=1 Backend/tests/be1/battle/battle.test.mjs Backend/tests/be1/battle/battleEffects.test.mjs Backend/tests/be1/practice/learningMaintenance.test.mjs Backend/tests/be1/practice/attemptCompletion.test.mjs Backend/tests/be1/practice/progressAchievements.test.mjs Backend/tests/be1/profileContent.test.mjs"
 ```
 
 Các test xác nhận project demo và Auth/Database ở `127.0.0.1:9199/9100` trước

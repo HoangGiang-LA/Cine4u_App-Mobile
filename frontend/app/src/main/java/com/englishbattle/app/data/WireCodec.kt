@@ -62,7 +62,9 @@ object WireCodec {
         o.optInt("losses"), o.optInt("draws"), o.optInt("streak"), o.stringMap("progress"),
         o.optJSONObject("daily")?.let { DailyStatus(it.optString("status", "available"), it.nullableString("attemptId")) } ?: DailyStatus(),
         o.items("history").map(::result), o.items("achievements").map {
-            Achievement(it.getString("id"), it.getString("title"), it.getString("description"), it.getBoolean("unlocked"))
+            Achievement(it.getString("id"), it.getString("title"), it.getString("description"), it.getBoolean("unlocked"),
+                it.optInt("progress", o.stringMap("progress")[it.getString("id").removePrefix("practice_20_")] ?: 0),
+                it.optInt("threshold", GameRules.PRACTICE_TARGET))
         }, o.items("notifications").map { AppNotification(it.getString("id"), it.getString("title"),
             it.getString("body"), it.getString("destination"), it.getBoolean("read"), it.getLong("createdAt")) },
         o.items("ledger").map { LedgerEntry(it.getString("id"), it.getString("label"), it.getInt("delta"), it.getLong("createdAt")) },

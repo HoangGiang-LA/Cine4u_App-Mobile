@@ -164,10 +164,10 @@ private fun rankAvatar(rank: Int) = listOf(R.drawable.figma_18, R.drawable.figma
                         Small(item.description)
                         if (item.unlocked) Small("Đã mở khóa", color = Green)
                         else {
-                            val topicId = item.id.removePrefix("practice_20_")
-                            val completed = (d.progress[topicId] ?: 0).coerceIn(0, GameRules.PRACTICE_TARGET)
-                            Progress(completed.toFloat() / GameRules.PRACTICE_TARGET)
-                            Small(if (completed > 0) "$completed / 20 lần" else "Tiếp tục cố gắng!", color = Purple)
+                            val target = item.threshold.coerceAtLeast(1)
+                            val completed = item.progress.coerceIn(0, target)
+                            Progress(completed.toFloat() / target)
+                            Small("$completed / $target", color = Purple)
                         }
                     }
                 }

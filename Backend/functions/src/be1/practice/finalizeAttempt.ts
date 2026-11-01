@@ -1,6 +1,7 @@
 import {HttpsError} from "firebase-functions/v2/https";
 import {adminDb} from "../../config/firebaseAdmin";
 import {transactionWithRetry} from "../databaseTransaction";
+import type {BattleAchievement} from "../battle/battleAchievements";
 import {
   initializeAttemptAnswers, projectAttemptState, StoredAnswer, StoredAttempt,
   updateAttemptCounts,
@@ -41,11 +42,20 @@ export interface UserSettlementModel {
   progress: Record<string, number>;
   initializedAt?: number;
   rating?: number;
+  battleAchievements?: Record<string, BattleAchievement>;
+  battleAchievementRevision?: number;
+  battleAchievementPublishedRevision?: number;
   battleStats?: {
     wins: number; losses: number; draws: number;
     matchesPlayed: number; winStreak: number; bestWinStreak: number;
   };
 }
+
+type FinalOutcome = "completed" | "abandoned";
+const finalizers = new Map<string, {
+  outcome: FinalOutcome;
+  promise: Promise<FinalizeOutput>;
+}>();
 
 /**
  * Authoritative user settlement at userSettlements/{uid}.
@@ -53,8 +63,40 @@ export interface UserSettlementModel {
  * @param {string} uid Owner of the attempt.
  * @param {string} attemptId Attempt to settle.
  * @param {string} outcome Requested terminal outcome.
+ * @return {Promise<FinalizeOutput>} Saved, immutable result.
  */
-export async function finalizeAttemptLogic(
+export function finalizeAttemptLogic(
+  uid: string,
+  attemptId: string,
+  outcome: FinalOutcome = "completed",
+): Promise<FinalizeOutput> {
+  const key = JSON.stringify([uid, attemptId]);
+  const previous = finalizers.get(key);
+  if (previous?.outcome === outcome) return previous.promise;
+  // Local set/update projections can cancel another pending SDK transaction.
+  // Share identical requests and serialize conflicting outcomes per attempt;
+  // independent processes still arbitrate through the canonical transaction.
+  const execute = async () => {
+    if (previous) await previous.promise.catch(() => undefined);
+    return finalizeAttemptStored(uid, attemptId, outcome);
+  };
+  const entry = {outcome, promise: execute()};
+  finalizers.set(key, entry);
+  const clear = () => {
+    if (finalizers.get(key) === entry) finalizers.delete(key);
+  };
+  void entry.promise.then(clear, clear);
+  return entry.promise;
+}
+
+/**
+ * Execute one finalization after earlier requests for this attempt finish.
+ * @param {string} uid Owner.
+ * @param {string} attemptId Attempt.
+ * @param {FinalOutcome} outcome Requested immutable terminal outcome.
+ * @return {Promise<FinalizeOutput>} Saved result.
+ */
+async function finalizeAttemptStored(
   uid: string,
   attemptId: string,
   outcome: "completed" | "abandoned" = "completed",

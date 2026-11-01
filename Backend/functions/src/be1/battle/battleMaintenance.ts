@@ -5,6 +5,7 @@ import {BattleCoordinator, BattleMatch} from "./battleTypes";
 import {battleDueAt} from "./battleState";
 import {enqueueBattleWork} from "./battleWork";
 import {transactBattle} from "./battleService";
+import {settleBattle} from "./battleSettlement";
 import {flushBattleCoordinator, releaseBattle} from "./matchmaking";
 
 const discover = async () => {
@@ -40,7 +41,8 @@ const discover = async () => {
         await adminDb.ref(`battleRooms/${id}`).get()
       ).val() as BattleMatch | null;
       if (!match) continue; // An allocation outbox may still be retrying.
-      if (match.status === "completed" && match.settlementVersion === 1) {
+      if (match.status === "completed" && match.settlementVersion === 1 &&
+          match.battleEffectsVersion === 1) {
         await releaseBattle(match);
       } else await enqueueBattleWork(id, battleDueAt(match), true);
     }
@@ -110,20 +112,33 @@ export async function drainBattleWork(): Promise<void> {
       );
       if (!claim.committed || !claim.snapshot.exists()) continue;
       const job = claim.snapshot.val();
-      const exists = (await adminDb.ref(`battleRooms/${id}`).get()).exists();
-      const match = exists ? (await transactBattle(id)).match : null;
+      const stored = (await adminDb.ref(`battleRooms/${id}`).get())
+        .val() as BattleMatch | null;
+      let match = stored;
+      if (stored?.status === "completed" && job.refreshEffects) {
+        await settleBattle(id, true);
+      } else if (stored) match = (await transactBattle(id)).match;
       const next =
         !match || match.status === "completed" ? null : battleDueAt(match);
       await ref.transaction(
         (current) => {
           if (!current) return current;
           if (current.leaseOwner !== owner) return;
-          if (next === null) return null;
+          if (next === null && current.revision === job.revision) return null;
+          if (next === null) {
+            return {
+              matchId: id, generation: current.generation,
+              revision: current.revision, dueAt: Date.now(),
+              refreshEffects: current.refreshEffects || null,
+            };
+          }
           const wake = Number.isFinite(current.wakeAt) ?
             current.wakeAt :
             current.dueAt;
           return {
             matchId: id,
+            generation: current.generation,
+            refreshEffects: current.refreshEffects || null,
             revision: current.revision,
             dueAt:
               current.revision === job.revision ? next : Math.min(wake, next),
