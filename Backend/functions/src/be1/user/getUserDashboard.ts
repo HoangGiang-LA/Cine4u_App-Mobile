@@ -71,6 +71,7 @@ export const getUserDashboard = onCall(
         notificationsSnap,
         ledgerSnap,
         practiceHistorySnap,
+        battleHistorySnap,
       ] = await Promise.all([
         adminDb.ref(`accountAccess/${uid}`).get(),
         adminDb.ref(`userStats/${uid}`).get(),
@@ -92,6 +93,10 @@ export const getUserDashboard = onCall(
           .get(),
 
         adminDb.ref(`practiceAttempts/${uid}`)
+          .orderByChild("finishedAt")
+          .limitToLast(50)
+          .get(),
+        adminDb.ref(`battleHistory/${uid}`)
           .orderByChild("finishedAt")
           .limitToLast(50)
           .get(),
@@ -407,7 +412,28 @@ const practiceHistory: HistoryResult[] = Object.entries(
   }];
 });
 
-const history = practiceHistory
+const battleHistory: HistoryResult[] = Object.entries(
+  battleHistorySnap.val() || {}
+).flatMap(([attemptId, value]) => {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return [];
+  const item = value as Record<string, unknown>;
+  if (!["win", "loss", "draw", "left"].includes(String(item.outcome))) {
+    return [];
+  }
+  return [{
+    attemptId, mode: "BATTLE" as const,
+    correct: nonNegativeInt(item.correct), total: 10,
+    coins: nonNegativeInt(item.coins),
+    outcome: item.outcome as "win" | "loss" | "draw" | "left",
+    completedAt: nonNegativeInt(item.finishedAt), reviews: [],
+    ratingDelta: typeof item.ratingDelta === "number" ? item.ratingDelta : 0,
+    opponentName: typeof item.opponentName === "string" ?
+      item.opponentName : "",
+    opponentCorrect: nonNegativeInt(item.opponentCorrect),
+  }];
+});
+
+const history = [...practiceHistory, ...battleHistory]
   .sort((a, b) =>
     (b.completedAt ?? 0) - (a.completedAt ?? 0)
   )

@@ -2,6 +2,8 @@ import {onCall, HttpsError} from "firebase-functions/v2/https";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {finalizeAttemptLogic} from "./finalizeAttempt";
 import {isDailyExpired} from "./attemptHelper";
+import {battleId, battleSession} from "../battle/battleAccess";
+import {memberBattleResponse} from "../battle/battleService";
 
 export const getAttemptResult = onCall(
   {
@@ -42,6 +44,14 @@ export const getAttemptResult = onCall(
         );
       }
 
+      if (battleId(attemptId)) {
+        const {serverNow, attempt} = await memberBattleResponse(uid, attemptId,
+          battleSession(request.data?.clientSessionId), {type: "heartbeat"});
+        if (!attempt.result) {
+          throw new HttpsError("failed-precondition", "Battle is active.");
+        }
+        return {serverNow, result: attempt.result};
+      }
       // 3. Verify attempt existence and ownership
       const attemptRef = adminDb.ref(`practiceAttempts/${uid}/${attemptId}`);
       const attemptSnap = await attemptRef.get();

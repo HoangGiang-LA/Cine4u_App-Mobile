@@ -46,12 +46,19 @@ export const mobileContract = {
     findBattle: {request: {...object({kind: {enum: ['quick', 'daily', 'create', 'join']}, roomCode: nullableId, requestId: str}, ['kind', 'requestId']),
       allOf: [{if: {properties: {kind: {const: 'join'}}}, then: {required: ['roomCode'], properties: {roomCode: {type: 'string', pattern: '^[A-Z0-9]{6}$'}}}}]}, response: response({ticket}), writes: true, phaseOneKinds: ['quick']},
     getBattleTicket: {request: object({ticketId: str}), response: response({ticket})},
-    cancelBattleSearch: {request: object({ticketId: str}), response: response({}), writes: true},
+    cancelBattleSearch: {request: object({ticketId: str}), response: object({serverNow: int, attempt}, ['serverNow']), writes: true},
     getLeaderboard: {request: object({period: {enum: ['week', 'month']}, cursor: nullableId}, ['period']), response: response({page: leaderboard})},
     markNotificationsRead: {request: object({ids: list(str, 50)}), response: response({}), writes: true},
     getAttemptResult: {request: object({attemptId: str}), response: response({result})},
   },
 };
+
+// Optional for older clients; current Android supplies a stable installation ID
+// so another device cannot keep an active battle session alive accidentally.
+for (const name of ['findBattle', 'getBattleTicket', 'cancelBattleSearch', 'resumeAttempt',
+  'submitAttemptAnswer', 'saveAttemptSelection', 'advanceAttempt', 'leaveAttempt', 'getAttemptResult']) {
+  mobileContract.methods[name].request.properties.clientSessionId = str;
+}
 
 export function assertAttemptSemantics(value) {
   const ids = new Set();

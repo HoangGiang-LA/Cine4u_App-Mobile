@@ -42,3 +42,7 @@ export {getAttemptResult} from "./be1/practice/getAttemptResult";
 export {leaveAttempt} from "./be1/practice/leaveAttempt";
 export {expireDailyAttempts} from "./be1/practice/expireDailyAttempts";
 export {maintainLearningAttempts} from "./be1/practice/learningMaintenance";
+export {
+  findBattle, getBattleTicket, cancelBattleSearch,
+} from "./be1/battle/battleCallables";
+export {maintainBattles} from "./be1/battle/battleMaintenance";

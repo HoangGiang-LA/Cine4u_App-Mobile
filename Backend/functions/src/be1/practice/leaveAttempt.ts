@@ -1,4 +1,6 @@
 import {onCall, HttpsError} from "firebase-functions/v2/https";
+import {battleId, battleSession} from "../battle/battleAccess";
+import {memberBattleResponse} from "../battle/battleService";
 import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {
   finalizeAttemptLogic,
@@ -60,6 +62,10 @@ export const leaveAttempt = onCall(
         );
       }
 
+      if (battleId(attemptId)) {
+        return memberBattleResponse(uid, attemptId,
+          battleSession(request.data?.clientSessionId), {type: "leave"});
+      }
       // 3. Verify attempt existence and ownership
       const attemptRef = adminDb.ref(`practiceAttempts/${uid}/${attemptId}`);
       const attemptSnap = await attemptRef.get();

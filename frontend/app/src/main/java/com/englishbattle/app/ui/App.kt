@@ -128,7 +128,11 @@ enum class Route { Splash, Login, Register, Forgot, Home, Challenge, Practice, V
         }
     }
     LaunchedEffect(route, ticket.data, busy, cancelRequested) {
-        if (route == Route.Matching && cancelRequested && !busy && ticket.data == null && playError == null) { cancelRequested = false; root(Route.Battle); dataVM.refresh() }
+        if (route == Route.Matching && cancelRequested && !busy && ticket.data == null && playError == null) {
+            cancelRequested = false
+            if (attempt.data?.mode == QuizMode.BATTLE) go(Route.BattleQuiz) else root(Route.Battle)
+            dataVM.refresh()
+        }
         if (route == Route.Matching && enterRequested && attempt.data != null && ticket.data == null && !busy && !cancelRequested && attempt.data?.mode == QuizMode.BATTLE) { enterRequested = false; go(Route.BattleQuiz) }
     }
     LaunchedEffect(route) {

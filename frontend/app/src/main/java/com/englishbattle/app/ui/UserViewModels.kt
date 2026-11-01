@@ -146,7 +146,8 @@ class UserDataViewModel(app: Application) : AndroidViewModel(app) {
     fun dismiss() { _message.value = null }
 }
 
-class PlayViewModel(app: Application) : AndroidViewModel(app) {
+class PlayViewModel(app: Application, private val repository: GameRepository) : AndroidViewModel(app) {
+    constructor(app: Application) : this(app, (app as EnglishBattleApplication).container.game)
     private val container = (app as EnglishBattleApplication).container
     private val prefs = app.getSharedPreferences("english_battle_pending", Context.MODE_PRIVATE)
     private var scope = CoroutineScope(viewModelScope.coroutineContext + SupervisorJob(viewModelScope.coroutineContext[Job]))
@@ -180,7 +181,7 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
         val pendingTicket = prefs.getString("ticket-$key", null)
         if (pendingTicket != null) {
             _ticket.value = LoadState(loading = true)
-            run { acceptTicket(container.game.matchStatus(pendingTicket)); beginPoll() }
+            run { acceptTicket(repository.matchStatus(pendingTicket)); beginPoll() }
         } else if (activeId != null || hasPendingStart) resume()
     }
     fun clear() {
@@ -228,7 +229,7 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
         }
         prefs.edit().putString("start-mode-$key", quizMode.name).putString("start-topic-$key", topicId).apply()
         try {
-            accept(container.game.start(quizMode, topicId, requestId))
+            accept(repository.start(quizMode, topicId, requestId))
             prefs.edit().remove("start-$key-$signature").remove("start-mode-$key").remove("start-topic-$key").apply()
         } catch (e: Exception) {
             if (definitiveFailure(e)) prefs.edit().remove("start-$key-$signature").remove("start-mode-$key").remove("start-topic-$key").apply()
@@ -241,26 +242,26 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
             val request = pendingMode?.let { QuizMode.valueOf(it) to prefs.getString("start-topic-$key", null) } ?: lastStart ?: return
             start(request.first, request.second); return
         }
-        run { accept(container.game.resume(id)) }
+        run { accept(repository.resume(id)) }
     }
     fun submit(optionId: String?) = run {
         selectionJob?.join()
         val a = _attempt.value.data ?: return@run
         val q = a.current ?: return@run
         if (a.receipt != null || a.status != "active") return@run
-        accept(container.game.submit(a.id, q.id, optionId, "answer-${a.id}-${q.id}"))
+        accept(repository.submit(a.id, q.id, optionId, "answer-${a.id}-${q.id}"))
     }
     fun saveSelection(optionId: String) {
         val a = _attempt.value.data ?: return
         val q = a.current ?: return
-        if (a.mode == QuizMode.BATTLE || a.receipt != null || a.status != "active") return
+        if (a.receipt != null || a.status != "active") return
         val previous = selectionJob
         val version = ++selectionVersion
         selectionJob = scope.launch {
             previous?.join()
             if (version != selectionVersion) return@launch
             try {
-                container.game.saveSelection(a.id, q.id, optionId, UUID.randomUUID().toString())
+                repository.saveSelection(a.id, q.id, optionId, UUID.randomUUID().toString())
                 if (version == selectionVersion) _error.value = null
             } catch (e: Exception) {
                 if (version == selectionVersion && _attempt.value.data?.current?.id == q.id)
@@ -270,23 +271,24 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
     }
     fun advance() = run {
         val a = _attempt.value.data ?: return@run
-        accept(container.game.advance(a.id, "advance-${a.id}-${a.index}", a.index))
+        accept(repository.advance(a.id, "advance-${a.id}-${a.index}", a.index))
     }
     fun leave() = run {
         val a = _attempt.value.data ?: return@run
-        accept(container.game.leave(a.id, "leave-${a.id}"))
+        accept(repository.leave(a.id, "leave-${a.id}"))
     }
     fun find(kind: String, code: String? = null) = run {
         if (activeId != null || hasPendingStart || prefs.contains("ticket-$key")) throw UserFacingException("Bạn đang có phiên hoặc yêu cầu tìm trận. Hãy mở lại phiên đó.")
         val pendingKind = prefs.getString("find-kind-$key", null)
         if (pendingKind != null && (kind != pendingKind || code != prefs.getString("find-code-$key", null))) throw UserFacingException("Hãy mở lại yêu cầu tìm trận đang chờ trước.")
+        _attempt.value = LoadState(); _result.value = LoadState()
         lastFind = kind to code
         val signature = "$kind-${code.orEmpty()}"
         val request = prefs.getString("find-$key-$signature", null) ?: UUID.randomUUID().toString().also { prefs.edit().putString("find-$key-$signature", it).apply() }
         prefs.edit().putString("find-kind-$key", kind).putString("find-code-$key", code).apply()
         _ticket.value = LoadState(loading = true)
         try {
-            val t = container.game.findMatch(kind, code, request)
+            val t = repository.findMatch(kind, code, request)
             prefs.edit().putString("ticket-$key", t.id).remove("find-$key-$signature").remove("find-kind-$key").remove("find-code-$key").apply()
             acceptTicket(t); beginPoll()
         } catch (e: Exception) {
@@ -301,12 +303,12 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
             val request = kind?.let { it to prefs.getString("find-code-$key", null) } ?: lastFind ?: return
             find(request.first, request.second); return
         }
-        run { acceptTicket(container.game.matchStatus(id)); beginPoll() }
+        run { acceptTicket(repository.matchStatus(id)); beginPoll() }
     }
     fun enterMatch() = run {
         val t = _ticket.value.data ?: return@run
         val id = t.attemptId ?: return@run
-        accept(container.game.resume(id))
+        accept(repository.resume(id))
         prefs.edit().remove("ticket-$key").apply(); _ticket.value = LoadState()
     }
     fun cancelMatch() = run {
@@ -316,16 +318,18 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
             val code = prefs.getString("find-code-$key", null)
             val signature = "$kind-${code.orEmpty()}"
             val request = prefs.getString("find-$key-$signature", null) ?: return@run
-            val t = container.game.findMatch(kind, code, request)
+            val t = repository.findMatch(kind, code, request)
             prefs.edit().putString("ticket-$key", t.id).remove("find-kind-$key").remove("find-code-$key").remove("find-$key-$signature").apply()
             id = t.id
         }
-        container.game.cancelMatch(id)
+        val cancelled = repository.cancelMatch(id)
         prefs.edit().remove("ticket-$key").apply(); _ticket.value = LoadState(); poll?.cancel()
+        // A matched cancellation enters the leave window and still needs polling.
+        cancelled?.let(::accept)
     }
     fun viewResult(id: String) = run {
         _result.value = LoadState(loading = true)
-        try { _result.value = LoadState(container.game.historyDetail(id)) }
+        try { _result.value = LoadState(repository.historyDetail(id)) }
         catch (e: Exception) { _result.value = LoadState(error = friendlyError(e)) }
     }
     fun setForeground(value: Boolean) { foreground = value; if (!value) poll?.cancel() else { if (activeId != null) resume(); beginPoll() } }
@@ -343,10 +347,10 @@ class PlayViewModel(app: Application) : AndroidViewModel(app) {
                     gate.withLock {
                     if (_busy.value) return@withLock
                     if (matching) {
-                        val t = container.game.matchStatus(_ticket.value.data!!.id)
+                        val t = repository.matchStatus(_ticket.value.data!!.id)
                         acceptTicket(t)
                     } else {
-                        val a = container.game.resume(_attempt.value.data!!.id)
+                        val a = repository.resume(_attempt.value.data!!.id)
                         _attempt.value = LoadState(a)
                         if (a.result != null) accept(a)
                     }

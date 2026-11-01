@@ -60,4 +60,57 @@ class QuizTimeoutScreenTest {
         compose.onNodeWithText("Gửi đáp án").performScrollTo().assertIsEnabled().performClick()
         compose.runOnIdle { assertEquals("b", submitted) }
     }
+
+    @Test fun battleWaitsForTheOpponentAndKeepsCorrectnessHidden() {
+        val a = AttemptState("battle_ui", QuizMode.BATTLE, "", listOf(question), 0, 31000,
+            receipts = listOf(AnswerReceipt(question.id, "b", null)), status = "waiting",
+            opponentName = "Opponent", reconnectDeadlineAt = 31000)
+        val selections = mutableListOf<String>()
+        compose.setContent {
+            EnglishBattleTheme {
+                QuizScreen(LoadState(a), false, null, "battle-test", { 1000 }, {}, {}, {}, {}, {},
+                    saveSelection = selections::add)
+            }
+        }
+        compose.onNodeWithText("Đang chờ đối thủ hoặc kết quả trận đấu...").performScrollTo().assertExists()
+        compose.onAllNodesWithText("— pts").assertCountEquals(2)
+        compose.onNodeWithText("Second choice").performScrollTo().performClick()
+        compose.runOnIdle { assertTrue(selections.isEmpty()) }
+        compose.onNodeWithText("Chính xác!").assertDoesNotExist()
+        compose.onNodeWithText("Thời hạn trở lại trận:", substring = true).assertDoesNotExist()
+    }
+
+    @Test fun reconnectCountdownAppearsWhenServerHeartbeatsStop() {
+        val clock = AtomicLong(1000)
+        val a = AttemptState("battle_reconnect", QuizMode.BATTLE, "", listOf(question), 0, 31000,
+            opponentName = "Opponent", reconnectDeadlineAt = 31000)
+        compose.setContent {
+            EnglishBattleTheme {
+                QuizScreen(LoadState(a), false, null, "battle-test", clock::get, {}, {}, {}, {}, {})
+            }
+        }
+        compose.onNodeWithText("Thời hạn trở lại trận:", substring = true).assertDoesNotExist()
+        clock.set(9000)
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithText("Thời hạn trở lại trận:", substring = true).fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("Thời hạn trở lại trận: 22 giây").assertExists()
+    }
+
+    @Test fun reconnectCountdownKeepsTickingAfterTheQuestionTimerReachesZero() {
+        val clock = AtomicLong(31000)
+        val a = AttemptState("battle_late_reconnect", QuizMode.BATTLE, "", listOf(question), 0, 31000,
+            status = "waiting", opponentName = "Opponent", reconnectDeadlineAt = 50000)
+        compose.setContent {
+            EnglishBattleTheme {
+                QuizScreen(LoadState(a), false, null, "battle-test", clock::get, {}, {}, {}, {}, {})
+            }
+        }
+        compose.onNodeWithText("Thời hạn trở lại trận: 19 giây").assertExists()
+        clock.set(40000)
+        compose.waitUntil(5000) {
+            compose.onAllNodesWithText("Thời hạn trở lại trận: 10 giây").fetchSemanticsNodes().isNotEmpty()
+        }
+        compose.onNodeWithText("00:00").assertExists()
+    }
 }

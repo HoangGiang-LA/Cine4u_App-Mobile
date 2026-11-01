@@ -49,11 +49,12 @@ import java.util.Locale
     }
     var selected by rememberSaveable(a.id, q.id) { mutableStateOf(a.selectedOptionId) }
     var quit by rememberSaveable(a.id) { mutableStateOf(false) }
-    var seconds by remember(a.deadlineAt) { mutableIntStateOf(remainingSeconds(a.deadlineAt, now())) }
+    var currentTime by remember(a.id) { mutableLongStateOf(now()) }
+    val seconds = remainingSeconds(a.deadlineAt, currentTime)
     val owner = LocalLifecycleOwner.current
     LaunchedEffect(a.deadlineAt, owner) {
         owner.lifecycle.repeatOnLifecycle(Lifecycle.State.STARTED) {
-            while (true) { seconds = remainingSeconds(a.deadlineAt, now()); delay(200) }
+            while (true) { currentTime = now(); delay(200) }
         }
     }
     LaunchedEffect(a.id, q.id, seconds, a.receipt, busy, error) {
@@ -68,7 +69,12 @@ import java.util.Locale
             Small("VS")
             FighterCard(a.opponentName, null, true, Modifier.weight(1f))
         }
-        a.reconnectDeadlineAt?.let { deadline -> Text("Thời hạn trở lại trận: ${remainingSeconds(deadline, now())} giây", color = MaterialTheme.colorScheme.error) }
+        a.reconnectDeadlineAt?.takeIf { remainingSeconds(it, currentTime) <= 24 }?.let { deadline ->
+            Text("Thời hạn trở lại trận: ${remainingSeconds(deadline, currentTime)} giây", color = MaterialTheme.colorScheme.error)
+        }
+        if (a.mode == QuizMode.BATTLE && a.status == "waiting") {
+            Panel(color = Blue) { Text("Đang chờ đối thủ hoặc kết quả trận đấu...") }
+        }
         Progress((a.index + 1f) / a.questions.size)
         Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween) {
             Small(if (a.mode == QuizMode.BATTLE) "QUESTION ${a.index + 1} OF ${a.questions.size}" else "Câu ${a.index + 1}/${a.questions.size}")

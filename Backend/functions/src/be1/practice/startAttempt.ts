@@ -20,6 +20,7 @@ const QUESTION_COUNTS: Record<string, number> = {
   PRACTICE: 10,
   TEST: 20,
   DAILY: 5,
+  BATTLE: 10,
 };
 
 /**
@@ -42,7 +43,7 @@ function shuffle<T>(arr: T[]): T[] {
  * @param {string} mode Mode selecting the question count and pool.
  * @param {string|null} topicId Topic filter for practice mode.
  */
-async function selectQuestions(
+export async function selectQuestions(
   mode: string,
   topicId: string | null,
 ): Promise<WireQuestion[]> {
@@ -70,7 +71,8 @@ async function selectQuestions(
 
   let pool: Record<string, unknown> = {};
   if (mode !== "PRACTICE") {
-    const templateId = mode === "TEST" ? "test_mixed" : "daily_mixed";
+    const templateId = mode === "BATTLE" ? "battle_mixed" :
+      mode === "TEST" ? "test_mixed" : "daily_mixed";
     const template = (
       await adminDb.ref(`quizTemplates/${templateId}`).get()
     ).val();
@@ -80,7 +82,12 @@ async function selectQuestions(
       normalizeMode(template.mode) !== mode ||
       template.questionCount !== count ||
       template.questionTimeLimitSeconds !== 30 ||
-      template.completionCoins !== 2 ||
+      template.completionCoins !== (mode === "BATTLE" ? 0 : 2) ||
+      (mode === "BATTLE" && (template.sharedQuestionSet !== true ||
+        template.winCoins !== 5 || template.winRating !== 5 ||
+        template.lossRating !== -2 || template.ratingFloor !== 0 ||
+        template.lossCoins !== 0 || template.drawCoins !== 0 ||
+        template.drawRating !== 0)) ||
       template.completionPolicy !== "all_questions_resolved"
     ) {
       throw new HttpsError(

@@ -103,9 +103,19 @@ class FirebaseGameRepository(private val clock: ServerClock,
     private val functions: FirebaseFunctions = FirebaseFunctions.getInstance("asia-southeast1").apply {
         if (BuildConfig.USE_FUNCTIONS_EMULATOR) useEmulator("10.0.2.2", 5001)
     }) : GameRepository {
+    private val clientSessionId by lazy {
+        val prefs = com.google.firebase.FirebaseApp.getInstance().applicationContext
+            .getSharedPreferences("english_battle_device", android.content.Context.MODE_PRIVATE)
+        prefs.getString("battle-session", null) ?: java.util.UUID.randomUUID().toString().also {
+            prefs.edit().putString("battle-session", it).apply()
+        }
+    }
     private suspend fun call(name: String, data: Map<String, Any?> = emptyMap()): JSONObject = withTimeout(20_000) {
         val sentAt = System.currentTimeMillis()
-        val response = try { functions.getHttpsCallable(name).call(data).await().data }
+        val request = if (name in setOf("findBattle", "getBattleTicket", "cancelBattleSearch", "resumeAttempt",
+                "submitAttemptAnswer", "saveAttemptSelection", "advanceAttempt", "leaveAttempt", "getAttemptResult"))
+            data + ("clientSessionId" to clientSessionId) else data
+        val response = try { functions.getHttpsCallable(name).call(request).await().data }
         catch (e: FirebaseFunctionsException) {
             if (e.code == FirebaseFunctionsException.Code.UNAUTHENTICATED) FirebaseAuth.getInstance().signOut()
             throw e
@@ -138,7 +148,10 @@ class FirebaseGameRepository(private val clock: ServerClock,
     override suspend fun findMatch(kind: String, code: String?, requestId: String) = WireCodec.ticket(call("findBattle",
         mapOf("kind" to kind, "roomCode" to code, "requestId" to requestId)).getJSONObject("ticket"))
     override suspend fun matchStatus(ticketId: String) = WireCodec.ticket(call("getBattleTicket", mapOf("ticketId" to ticketId)).getJSONObject("ticket"))
-    override suspend fun cancelMatch(ticketId: String) { call("cancelBattleSearch", mapOf("ticketId" to ticketId)) }
+    override suspend fun cancelMatch(ticketId: String): AttemptState? {
+        val response = call("cancelBattleSearch", mapOf("ticketId" to ticketId))
+        return response.optJSONObject("attempt")?.let(WireCodec::attempt)
+    }
     override suspend fun leaderboard(period: String, cursor: String?) = WireCodec.leaderboard(call("getLeaderboard", mapOf("period" to period, "cursor" to cursor)).getJSONObject("page"))
     override suspend fun markRead(ids: List<String>) { call("markNotificationsRead", mapOf("ids" to ids)) }
     override suspend fun historyDetail(attemptId: String) = WireCodec.result(call("getAttemptResult", mapOf("attemptId" to attemptId)).getJSONObject("result"))

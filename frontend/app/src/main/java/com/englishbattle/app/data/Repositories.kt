@@ -24,7 +24,7 @@ interface GameRepository {
     suspend fun leave(attemptId: String, requestId: String): AttemptState
     suspend fun findMatch(kind: String, code: String?, requestId: String): MatchTicket
     suspend fun matchStatus(ticketId: String): MatchTicket
-    suspend fun cancelMatch(ticketId: String)
+    suspend fun cancelMatch(ticketId: String): AttemptState?
     suspend fun leaderboard(period: String, cursor: String?): LeaderboardPage
     suspend fun markRead(ids: List<String>)
     suspend fun historyDetail(attemptId: String): QuizResult

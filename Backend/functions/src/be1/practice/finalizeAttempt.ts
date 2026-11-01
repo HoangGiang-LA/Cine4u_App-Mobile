@@ -1,5 +1,6 @@
 import {HttpsError} from "firebase-functions/v2/https";
 import {adminDb} from "../../config/firebaseAdmin";
+import {transactionWithRetry} from "../databaseTransaction";
 import {
   initializeAttemptAnswers, projectAttemptState, StoredAnswer, StoredAttempt,
   updateAttemptCounts,
@@ -23,11 +24,15 @@ export interface FinalizeOutput {
 
 export interface GrantRecord {
   attemptId: string;
-  outcome: "completed" | "abandoned";
+  outcome: "completed" | "abandoned" | "win" | "loss" | "draw" | "left";
   coinDelta: number;
   correctCount: number;
   answeredCount: number;
   settledAt: number;
+  ratingDelta?: number;
+  ratingBefore?: number;
+  ratingAfter?: number;
+  sourceType?: "battle";
 }
 
 export interface UserSettlementModel {
@@ -35,6 +40,11 @@ export interface UserSettlementModel {
   grants: Record<string, GrantRecord>;
   progress: Record<string, number>;
   initializedAt?: number;
+  rating?: number;
+  battleStats?: {
+    wins: number; losses: number; draws: number;
+    matchesPlayed: number; winStreak: number; bestWinStreak: number;
+  };
 }
 
 /**
@@ -92,7 +102,7 @@ export async function finalizeAttemptLogic(
   // Atomic final-outcome decision on practiceAttempts
   // Prevents concurrent conflict between completed and abandoned calls
   // Keep speculative transaction values out of parallel result reads.
-  const txOutcome = await attemptRef.transaction(
+  const txOutcome = await transactionWithRetry(attemptRef,
     (att: StoredAttempt | null) => {
       if (!att) return att;
       const answers = initializeAttemptAnswers(att, legacyAnswers);
@@ -116,7 +126,7 @@ export async function finalizeAttemptLogic(
       updateAttemptCounts(att);
       att.updatedAt = now;
       return att;
-    }, undefined, false);
+    });
 
   if (!txOutcome.committed) {
     throw new HttpsError(

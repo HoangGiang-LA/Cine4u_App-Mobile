@@ -5,6 +5,14 @@
     "learningWork": {
       ".indexOn": ["dueAt"]
     },
+    "battleWork": {
+      ".indexOn": ["dueAt"]
+    },
+    "battleHistory": {
+      "$uid": {
+        ".indexOn": ["finishedAt"]
+      }
+    },
     "categories": {
       ".indexOn": ["status"],
       ".read": "auth != null && root.child('accountAccess').child(auth.uid).child('status').val() === 'active' && query.orderByChild === 'status' && query.equalTo === 'published'"

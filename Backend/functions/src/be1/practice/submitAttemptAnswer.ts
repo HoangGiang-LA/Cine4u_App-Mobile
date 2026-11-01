@@ -3,6 +3,8 @@ import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {contentId} from "./contentValidation";
 import {submitLearningAnswer} from "./attemptState";
 import {readAttemptResponse} from "./finalizeAttempt";
+import {battleId, battleSession} from "../battle/battleAccess";
+import {memberBattleResponse} from "../battle/battleService";
 
 export const submitAttemptAnswer = onCall(
   {region: "asia-southeast1", maxInstances: 10},
@@ -33,6 +35,11 @@ export const submitAttemptAnswer = onCall(
         "permission-denied",
         "This account is not active.",
       );
+    }
+    if (battleId(attemptId)) {
+      return memberBattleResponse(uid, attemptId,
+        battleSession(request.data?.clientSessionId),
+        {type: "submit", questionId, optionId, requestId});
     }
     const attempt = await submitLearningAnswer(
       uid,

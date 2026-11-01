@@ -3,6 +3,8 @@ import {adminAuth, adminDb} from "../../config/firebaseAdmin";
 import {contentId} from "./contentValidation";
 import {advanceLearningAttempt} from "./attemptState";
 import {readAttemptResponse} from "./finalizeAttempt";
+import {battleId, battleSession} from "../battle/battleAccess";
+import {memberBattleResponse} from "../battle/battleService";
 
 export const advanceAttempt = onCall(
   {region: "asia-southeast1", maxInstances: 10},
@@ -30,6 +32,11 @@ export const advanceAttempt = onCall(
         "permission-denied",
         "This account is not active.",
       );
+    }
+    if (battleId(attemptId)) {
+      return memberBattleResponse(uid, attemptId,
+        battleSession(request.data?.clientSessionId),
+        {type: "advance", requestId});
     }
     const attempt = await advanceLearningAttempt(
       uid,

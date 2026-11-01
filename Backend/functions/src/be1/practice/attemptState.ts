@@ -1,5 +1,6 @@
 import {HttpsError} from "firebase-functions/v2/https";
 import {adminDb} from "../../config/firebaseAdmin";
+import {transactionWithRetry} from "../databaseTransaction";
 import {dailyEndsAt, isDailyExpired, normalizeMode} from "./attemptHelper";
 import {enqueueLearningWork} from "./learningWork";
 
@@ -140,42 +141,39 @@ export async function saveLearningSelection(
   }
   const ordinal = Number(entry[0]);
   await enqueueLearningWork(uid, attemptId, loaded.attempt.deadlineAt);
-  const tx = await adminDb
-    .ref(`practiceAttempts/${uid}/${attemptId}`)
-    .transaction(
-      (attempt: StoredAttempt | null) => {
-        if (!attempt) return attempt;
-        if (
-          attempt.status !== "active" ||
+  const tx = await transactionWithRetry(
+    adminDb.ref(`practiceAttempts/${uid}/${attemptId}`),
+    (attempt: StoredAttempt | null) => {
+      if (!attempt) return attempt;
+      if (
+        attempt.status !== "active" ||
           isDailyExpired(attempt) ||
           attempt.currentIndex !== ordinal
-        ) {
-          return;
+      ) {
+        return;
+      }
+      const answers = initializeAttemptAnswers(attempt, loaded.answers);
+      const now = Date.now();
+      if (answers[ordinal] || now >= attempt.deadlineAt) return;
+      attempt.selections ||= {};
+      const previous = attempt.selections[ordinal];
+      if (previous?.requestId === requestId) {
+        if (previous.optionId !== optionId) {
+          throw new HttpsError(
+            "invalid-argument",
+            "requestId payload changed.",
+          );
         }
-        const answers = initializeAttemptAnswers(attempt, loaded.answers);
-        const now = Date.now();
-        if (answers[ordinal] || now >= attempt.deadlineAt) return;
-        attempt.selections ||= {};
-        const previous = attempt.selections[ordinal];
-        if (previous?.requestId === requestId) {
-          if (previous.optionId !== optionId) {
-            throw new HttpsError(
-              "invalid-argument",
-              "requestId payload changed.",
-            );
-          }
-          return attempt;
-        }
-        attempt.selections[ordinal] = {
-          optionId,
-          requestId,
-          selectedAt: now,
-        };
         return attempt;
-      },
-      undefined,
-      false,
-    );
+      }
+      attempt.selections[ordinal] = {
+        optionId,
+        requestId,
+        selectedAt: now,
+      };
+      return attempt;
+    },
+  );
   return tx.committed && tx.snapshot.exists() &&
     tx.snapshot.val().selections?.[ordinal]?.requestId === requestId;
 }
@@ -261,25 +259,24 @@ export async function submitLearningAnswer(
   }
   const correctId = await correctOption(question);
   await enqueueLearningWork(uid, attemptId, loaded.attempt.deadlineAt);
-  const tx = await adminDb
-    .ref(`practiceAttempts/${uid}/${attemptId}`)
-    .transaction(
-      (attempt: StoredAttempt | null) => {
-        if (!attempt) return attempt;
-        if (
-          attempt.status !== "active" ||
+  const tx = await transactionWithRetry(
+    adminDb.ref(`practiceAttempts/${uid}/${attemptId}`),
+    (attempt: StoredAttempt | null) => {
+      if (!attempt) return attempt;
+      if (
+        attempt.status !== "active" ||
           isDailyExpired(attempt) ||
           attempt.currentIndex !== ordinal
-        ) {
-          return;
-        }
-        const answers = initializeAttemptAnswers(attempt, loaded.answers);
-        if (answers[ordinal]) return attempt;
-        const now = Date.now();
-        const deadline =
+      ) {
+        return;
+      }
+      const answers = initializeAttemptAnswers(attempt, loaded.answers);
+      if (answers[ordinal]) return attempt;
+      const now = Date.now();
+      const deadline =
           Number(attempt.deadlineAt) || question.deadlineAt || 0;
-        if (deadline <= 0 || (optionId === null && now < deadline)) return;
-        answers[ordinal] =
+      if (deadline <= 0 || (optionId === null && now < deadline)) return;
+      answers[ordinal] =
           now >= deadline ?
             timeoutAnswer(attempt, question, correctId) :
             {
@@ -291,20 +288,18 @@ export async function submitLearningAnswer(
               requestId,
               receivedAt: now,
             };
-        updateAttemptCounts(attempt);
-        // The final confirmed answer completes the session even when the app
-        // closes before sending advance. Preserve this time across midnight.
-        if (ordinal === attempt.questionCount - 1 &&
+      updateAttemptCounts(attempt);
+      // The final confirmed answer completes the session even when the app
+      // closes before sending advance. Preserve this time across midnight.
+      if (ordinal === attempt.questionCount - 1 &&
             attempt.answeredCount === attempt.questionCount) {
-          attempt.status = "waiting";
-          attempt.finishedAt = answers[ordinal].receivedAt;
-        }
-        attempt.updatedAt = now;
-        return attempt;
-      },
-      undefined,
-      false,
-    );
+        attempt.status = "waiting";
+        attempt.finishedAt = answers[ordinal].receivedAt;
+      }
+      attempt.updatedAt = now;
+      return attempt;
+    },
+  );
   const attempt = tx.snapshot.val() as StoredAttempt;
   if (!attempt) throw new HttpsError("not-found", "Attempt not found.");
   const answer = attempt.answers?.[ordinal];
@@ -365,70 +360,67 @@ export async function advanceLearningAttempt(
     await correctOption(currentQuestion) :
     "";
   await enqueueLearningWork(uid, attemptId, loaded.attempt.deadlineAt);
-  const tx = await adminDb
-    .ref(`practiceAttempts/${uid}/${attemptId}`)
-    .transaction(
-      (attempt: StoredAttempt | null) => {
-        if (!attempt) return attempt;
-        if (
-          attempt.status !== "active" ||
+  const tx = await transactionWithRetry(
+    adminDb.ref(`practiceAttempts/${uid}/${attemptId}`),
+    (attempt: StoredAttempt | null) => {
+      if (!attempt) return attempt;
+      if (
+        attempt.status !== "active" ||
           isDailyExpired(attempt) ||
           attempt.advanceOperations?.[requestId] ||
           attempt.currentIndex !== (expectedIndex ?? loadedIndex)
-        ) {
-          return;
-        }
-        const index = attempt.currentIndex;
-        const question = loaded.questions[index];
-        if (!question) throw new HttpsError("internal", "Question missing.");
-        const deadline =
+      ) {
+        return;
+      }
+      const index = attempt.currentIndex;
+      const question = loaded.questions[index];
+      if (!question) throw new HttpsError("internal", "Question missing.");
+      const deadline =
           Number(attempt.deadlineAt) || question.deadlineAt || 0;
-        if (deadline <= 0) {
-          throw new HttpsError(
-            "failed-precondition",
-            "Question deadline missing.",
-          );
+      if (deadline <= 0) {
+        throw new HttpsError(
+          "failed-precondition",
+          "Question deadline missing.",
+        );
+      }
+      const now = Date.now();
+      const answers = initializeAttemptAnswers(attempt, loaded.answers);
+      if ((background || !answers[index]) && now < deadline) return;
+      const deadlineTransition = background || now >= deadline;
+      answers[index] ||= timeoutAnswer(attempt, question, correctId);
+      updateAttemptCounts(attempt);
+      const nextIndex = index + 1;
+      if (nextIndex >= attempt.questionCount) {
+        attempt.status = "waiting";
+        attempt.finishedAt = deadlineTransition ? deadline : now;
+      } else {
+        const next = loaded.questions[nextIndex];
+        if (!next) {
+          throw new HttpsError("internal", "Next question missing.");
         }
-        const now = Date.now();
-        const answers = initializeAttemptAnswers(attempt, loaded.answers);
-        if ((background || !answers[index]) && now < deadline) return;
-        const deadlineTransition = background || now >= deadline;
-        answers[index] ||= timeoutAnswer(attempt, question, correctId);
-        updateAttemptCounts(attempt);
-        const nextIndex = index + 1;
-        if (nextIndex >= attempt.questionCount) {
-          attempt.status = "waiting";
-          attempt.finishedAt = deadlineTransition ? deadline : now;
-        } else {
-          const next = loaded.questions[nextIndex];
-          if (!next) {
-            throw new HttpsError("internal", "Next question missing.");
-          }
-          const stored = attempt.questionTimings?.[nextIndex] || next;
-          const openedAt =
+        const stored = attempt.questionTimings?.[nextIndex] || next;
+        const openedAt =
             Number(stored.openedAt) || (deadlineTransition ? deadline : now);
-          const deadlineAt = Math.min(
-            Number(stored.deadlineAt) || openedAt + 30000,
-            normalizeMode(attempt.mode) === "DAILY" ?
-              dailyEndsAt(attempt) :
-              Infinity,
-          );
-          attempt.questionTimings ||= {};
-          attempt.questionTimings[nextIndex] = {openedAt, deadlineAt};
-          attempt.currentIndex = nextIndex;
-          attempt.deadlineAt = deadlineAt;
-        }
-        attempt.advanceOperations ||= {};
-        attempt.advanceOperations[requestId] = {
-          fromIndex: index,
-          completedAt: now,
-        };
-        attempt.updatedAt = now;
-        return attempt;
-      },
-      undefined,
-      false,
-    );
+        const deadlineAt = Math.min(
+          Number(stored.deadlineAt) || openedAt + 30000,
+          normalizeMode(attempt.mode) === "DAILY" ?
+            dailyEndsAt(attempt) :
+            Infinity,
+        );
+        attempt.questionTimings ||= {};
+        attempt.questionTimings[nextIndex] = {openedAt, deadlineAt};
+        attempt.currentIndex = nextIndex;
+        attempt.deadlineAt = deadlineAt;
+      }
+      attempt.advanceOperations ||= {};
+      attempt.advanceOperations[requestId] = {
+        fromIndex: index,
+        completedAt: now,
+      };
+      attempt.updatedAt = now;
+      return attempt;
+    },
+  );
   const attempt = tx.snapshot.val() as StoredAttempt;
   if (!attempt) throw new HttpsError("not-found", "Attempt not found.");
   if (

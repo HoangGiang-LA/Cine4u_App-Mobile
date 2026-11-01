@@ -1,5 +1,6 @@
 import {createHash} from "node:crypto";
 import {adminDb} from "../../config/firebaseAdmin";
+import {transactionWithRetry} from "../databaseTransaction";
 
 /**
  * Durable work key safe for Firebase paths.
@@ -26,30 +27,27 @@ export async function enqueueLearningWork(
   dueAt: number,
   onlyIfMissing = false,
 ): Promise<void> {
-  await adminDb
-    .ref(`learningWork/${learningWorkKey(uid, attemptId)}`)
-    .transaction(
-      (job) => {
-        if (job && onlyIfMissing) return;
-        const leased = Number(job?.leaseUntil) > Date.now();
-        const previousDue = Number.isFinite(job?.dueAt) ? job.dueAt : dueAt;
-        const previousWake = Number.isFinite(job?.wakeAt) ?
-          job.wakeAt :
-          dueAt;
-        return {
-          ...job,
-          uid,
-          attemptId,
-          // Leased jobs stay out of the due query. Remember concurrent client
-          // changes separately so releasing the lease still wakes them early.
-          dueAt: leased ? job.leaseUntil : Math.min(previousDue, dueAt),
-          wakeAt: leased ? Math.min(previousWake, dueAt) : null,
-          revision: (Number(job?.revision) || 0) + 1,
-        };
-      },
-      undefined,
-      false,
-    );
+  await transactionWithRetry(
+    adminDb.ref(`learningWork/${learningWorkKey(uid, attemptId)}`),
+    (job) => {
+      if (job && onlyIfMissing) return;
+      const leased = Number(job?.leaseUntil) > Date.now();
+      const previousDue = Number.isFinite(job?.dueAt) ? job.dueAt : dueAt;
+      const previousWake = Number.isFinite(job?.wakeAt) ?
+        job.wakeAt :
+        dueAt;
+      return {
+        ...job,
+        uid,
+        attemptId,
+        // Leased jobs stay out of the due query. Remember concurrent client
+        // changes separately so releasing the lease still wakes them early.
+        dueAt: leased ? job.leaseUntil : Math.min(previousDue, dueAt),
+        wakeAt: leased ? Math.min(previousWake, dueAt) : null,
+        revision: (Number(job?.revision) || 0) + 1,
+      };
+    },
+  );
 }
 
 /**

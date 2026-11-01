@@ -47,6 +47,8 @@ Tên được đồng bộ từ Auth sang RTDB sau khi lưu; khi mở lại app 
 
 Daily chưa hoàn thành hết ngày bị đóng và không nhận thưởng theo múi giờ `Asia/Ho_Chi_Minh`. Daily đã hoàn thành trước nửa đêm vẫn được phục hồi lưu thưởng nếu server khởi động lại sau đó. Giữ máy tính và `dev:local` chạy để xử lý nền liên tục; khi máy tắt, tác vụ được xử lý bù ở lần khởi động sau. Xem [cách vận hành và kiểm thử tác vụ nền](../Backend/functions/README.md).
 
+Thi đấu nhanh đã có ghép hai người, bộ 10 câu dùng chung, timeout, kết nối lại trong 30 giây và chốt kết quả/thưởng một lần. Hai người cùng chủ động rời trong 3 giây thì hòa; chỉ một người rời thì thua. App giữ session theo thiết bị và polling để server xác nhận kết nối. Thi đấu ngày/phòng riêng giữ giao diện và trả thông báo chưa hỗ trợ từ server. Xem [luật, dữ liệu và kiểm thử thi đấu](../Backend/functions/BATTLE.md).
+
 ## Tài liệu bàn giao
 
 Xem [10 nhóm việc, hợp đồng API và các bước kiểm tra](docs/FRONTEND-HANDOFF.md).
